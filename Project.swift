@@ -56,6 +56,7 @@ let app = Target.target(
     entitlements: .file(path: "RuEnSync/RuEnSync.entitlements"),
     dependencies: [
         .package(product: "Sparkle"),
+        .package(product: "SQLite"),
     ],
     settings: .settings(
         base: [
@@ -96,6 +97,10 @@ let project = Project(
         .remote(
             url: "https://github.com/sparkle-project/Sparkle.git",
             requirement: .upToNextMajor(from: "2.6.0")
+        ),
+        .remote(
+            url: "https://github.com/stephencelis/SQLite.swift.git",
+            requirement: .upToNextMajor(from: "0.15.0")
         ),
     ],
     targets: [app, tests]
