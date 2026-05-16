@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        No App Sandbox: IOKit/hid and Carbon TIS APIs work outside the sandbox.
+        Hardened runtime is on (set in build settings) — required for Developer ID
+        notarization. We don't need any additional entitlements: Raw HID device
+        access and TIS keyboard layout queries do not require special grants.
+    -->
+</dict>
+</plist>

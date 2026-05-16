@@ -1,0 +1,43 @@
+included:
+  - RuEnSync
+  - RuEnSyncTests
+
+excluded:
+  - .build
+  - build
+  - Derived
+  - Tuist/.build
+
+disabled_rules:
+  - trailing_comma
+  - todo
+  - opening_brace
+  - superfluous_disable_command
+  - blanket_disable_command
+  - trailing_whitespace
+
+opt_in_rules:
+  - empty_count
+  - empty_string
+
+line_length:
+  warning: 120
+  error: 200
+  ignores_comments: true
+
+identifier_name:
+  min_length:
+    warning: 1
+  excluded:
+    - id
+    - to
+  allowed_symbols:
+    - _
+
+function_body_length:
+  warning: 80
+  error: 120
+
+type_body_length:
+  warning: 300
+  error: 800

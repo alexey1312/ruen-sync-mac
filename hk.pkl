@@ -1,0 +1,87 @@
+amends "package://github.com/jdx/hk/releases/download/v1.28.0/hk@1.28.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.28.0/hk@1.28.0#/Builtins.pkl"
+
+// =============================================================================
+// hk configuration for ruen-sync-mac
+// =============================================================================
+
+local generated_excludes = List(".build/**", "build/**", "CHANGELOG.md")
+
+// Swift linters
+local swift_linters = new Mapping<String, Step> {
+    ["swiftformat"] {
+        glob = List("*.swift")
+        check = "swiftformat --lint {{files}}"
+        fix = "swiftformat {{files}}"
+        batch = true
+        stage = List("*.swift")
+        check_first = true
+        hide = true
+    }
+    ["swiftlint"] {
+        glob = List("*.swift")
+        fix = "swiftlint --fix {{files}}"
+        batch = true
+        stage = List("*.swift")
+        hide = true
+    }
+    ["swiftlint-strict"] {
+        glob = List("*.swift")
+        check = "swiftlint lint --strict --quiet {{files}}"
+        batch = true
+        depends = "swiftlint"
+        hide = true
+    }
+}
+
+local dprint_checks = new Mapping<String, Step> {
+    ["dprint"] = (Builtins.dprint) {
+        exclude = List("CHANGELOG.md", ".claude/**")
+        stage = List("*.md", "*.json")
+        check_first = true
+        hide = true
+    }
+}
+
+local builtin_checks = new Mapping<String, Step> {
+    ["trailing-whitespace"] = (Builtins.trailing_whitespace) {
+        exclude = generated_excludes
+        hide = true
+    }
+    ["check-merge-conflict"] = (Builtins.check_merge_conflict) {
+        hide = true
+    }
+    ["newlines"] = (Builtins.newlines) {
+        exclude = generated_excludes
+        hide = true
+    }
+}
+
+local all_linters = new Mapping<String, Step> {
+    ...swift_linters
+    ...dprint_checks
+    ...builtin_checks
+}
+
+hooks {
+    ["pre-commit"] {
+        fix = true
+        stash = "none"
+        steps = all_linters
+    }
+
+    ["commit-msg"] {
+        steps {
+            ["conventional-commit"] = Builtins.check_conventional_commit
+        }
+    }
+
+    ["fix"] {
+        fix = true
+        steps = all_linters
+    }
+
+    ["check"] {
+        steps = all_linters
+    }
+}

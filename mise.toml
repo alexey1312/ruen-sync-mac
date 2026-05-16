@@ -1,0 +1,108 @@
+# =============================================================================
+# mise configuration for ruen-sync-mac
+# =============================================================================
+# Tuist-based macOS menubar app. Tuist generates the Xcode project from
+# Project.swift; xcodebuild builds it; xcsift cleans up the output.
+
+[settings]
+experimental = true
+legacy_version_file = false
+
+[hooks]
+enter = """
+git config core.hooksPath .githooks 2>/dev/null || true
+"""
+
+[tools]
+# Swift toolchain pinned via .swift-version (6.2)
+tuist = "4.56.0"
+swiftformat = "0.60.1"
+swiftlint = "0.63.2"
+xcsift = "1.2.0"
+
+dprint = "0.53.1"
+
+hk = "1.39.0"
+pkl = "0.31.1"
+
+# =============================================================================
+# Tasks
+# =============================================================================
+
+[tasks.generate]
+description = "Generate Xcode project from Project.swift"
+run = "tuist generate --no-open"
+
+[tasks.edit]
+description = "Edit Project.swift in Xcode (tuist edit)"
+run = "tuist edit"
+
+[tasks.build]
+description = "Build (debug)"
+run = "tuist build RuEnSync 2>&1 | xcsift"
+
+[tasks."build:release"]
+description = "Build (release)"
+run = "tuist build RuEnSync --configuration Release 2>&1 | xcsift"
+
+[tasks.run]
+description = "Run app (debug)"
+run = "tuist run RuEnSync"
+
+[tasks.test]
+description = "Run all tests"
+run = "tuist test RuEnSync 2>&1 | xcsift"
+
+[tasks.lint]
+description = "Run SwiftLint"
+run = "swiftlint lint --strict RuEnSync RuEnSyncTests 2>&1 | xcsift"
+
+[tasks."format:swift"]
+description = "Format Swift code"
+run = "swiftformat RuEnSync RuEnSyncTests"
+
+[tasks."format-check:swift"]
+description = "Check Swift formatting (CI)"
+run = "swiftformat RuEnSync RuEnSyncTests --lint"
+
+[tasks."format:md"]
+description = "Format markdown"
+run = "dprint fmt"
+
+[tasks."format-check:md"]
+description = "Check markdown formatting (CI)"
+run = "dprint check"
+
+[tasks.format]
+description = "Format all (Swift + Markdown)"
+run = "hk fix --all 2>&1 | grep -E '^(✔|✗|hk )' || true"
+
+[tasks.format-check]
+description = "Check all formatting (CI)"
+run = """
+set -o pipefail
+hk check --all 2>&1 | grep -E '^(✔|✗|hk )'
+"""
+
+[tasks.setup]
+description = "Show git hooks status"
+run = "echo 'Git hooks:' && git config core.hooksPath && ls -la .githooks/"
+
+[tasks.pre-commit]
+description = "Run all pre-commit checks"
+run = """
+set -o pipefail
+hk check --all 2>&1 | grep -E '^(✔|✗|hk )'
+"""
+
+[tasks.clean]
+description = "Clean build artifacts and generated project"
+run = "tuist clean && rm -rf build .build *.xcodeproj *.xcworkspace"
+
+[tasks.notarize]
+description = "Sign + notarize the built .app (requires DEV_ID_APP / NOTARY_PROFILE env)"
+run = "bash Scripts/notarize.sh"
+
+[tasks.release]
+description = "End-to-end release: clean → generate → build → bundle → notarize → DMG"
+run = "bash Scripts/build-release.sh"
