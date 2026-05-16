@@ -99,6 +99,16 @@ Scripts/
    hasn't approved in System Settings → Login Items yet; that's fine, we just log
    it. See `LoginItem.registerIfNeeded()`.
 
+9. **Tuist's `.extendingDefault` Info.plist silently overrides version build
+   settings.** It bakes literal `CFBundleShortVersionString="1.0"` and
+   `CFBundleVersion="1"` into the plist, which Apple's build pipeline considers
+   authoritative over `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` build
+   settings. v1.1.0 shipped reporting version `1.0` because of this — Sparkle's
+   appcast then advertised `1.0` and existing installs couldn't see future
+   updates. Pin the plist values to `"$(MARKETING_VERSION)"` /
+   `"$(CURRENT_PROJECT_VERSION)"` in the `infoPlist:` dict so Xcode resolves
+   them at compile time. See `Project.swift` Info.plist block.
+
 ## Firmware contract
 
 The keyboard side is in [split_keyboard_layouts/firmware/](https://github.com/alexey1312/split_keyboard_layouts/tree/main/firmware).
@@ -155,6 +165,18 @@ Debug logs land in the unified log:
 log stream --predicate 'subsystem == "com.alexey1312.ruensync"' --info
 ```
 
+### Launching the debug build
+
+`tuist run RuEnSync` fails with _"no suitable device for macOS"_ on Tuist 4.56
+— it picks an iOS simulator and ignores `.mac` destinations. After
+`mise run build`, launch the `.app` directly:
+
+```bash
+open "$(find ~/Library/Developer/Xcode/DerivedData -name 'RuEnSync.app' -path '*/Debug/*' -type d | xargs -I {} stat -f '%m %N' {} | sort -rn | head -1 | awk '{print $2}')"
+```
+
+Or open the generated workspace in Xcode and ⌘R.
+
 ## Code style
 
 - Match the conventions in existing files. No need to add doc comments to obvious
@@ -164,6 +186,21 @@ log stream --predicate 'subsystem == "com.alexey1312.ruensync"' --info
 - Tests use the new `Testing` framework (`@Suite`, `@Test`, `#expect`), not XCTest.
 - Logger calls go through `Log.<category>` from `Logger.swift`. Always use the
   `os.Logger` API with `privacy:` annotations on interpolated values.
+
+### Format / lint quirks
+
+- `mise run format:swift` skips `Project.swift` — it only walks `RuEnSync/` and
+  `RuEnSyncTests/`. To format everything (including `Project.swift`), run
+  `mise run format` (which goes through `hk fix --all`).
+- SwiftLint runs in **strict** mode with `cyclomatic_complexity` capped at 10. A
+  switch over the 7-case `ActivityKind` with `guard let` trips it. Wrap legitimate
+  parser dispatch in a `// swiftlint:disable cyclomatic_complexity` … `// swiftlint:enable
+  cyclomatic_complexity` **block**. A `:next`-style comment between `///` doc and
+  declaration breaks `orphaned_doc_comment` — don't do that.
+- SourceKit frequently shows phantom _"No such module 'Sparkle' / 'SQLite' /
+  'ProjectDescription'"_ errors right after edits or package resolves. They lag
+  behind project regeneration. The real source of truth is `mise run build` /
+  `mise run test`; ignore the IDE's red squigglies if those are green.
 
 ## What NOT to touch without discussion
 
