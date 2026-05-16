@@ -325,4 +325,18 @@ extension HIDLink.OfflineReason {
             "HID manager open failed (\(String(format: "0x%08X", code)))"
         }
     }
+
+    /// True if the offline reason can plausibly clear itself on a re-open
+    /// attempt — e.g. another app (Vial) released its exclusive lock, the
+    /// kernel ungated a transient error. `awaitingDevice` is excluded because
+    /// IOHIDManager re-fires `handleDeviceMatched` automatically on replug,
+    /// so retrying ourselves would just thrash without changing anything.
+    var isRecoverable: Bool {
+        switch self {
+        case .awaitingDevice:
+            false
+        case .exclusiveAccess, .openFailed, .managerOpenFailed:
+            true
+        }
+    }
 }
