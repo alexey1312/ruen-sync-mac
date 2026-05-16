@@ -90,16 +90,19 @@ defaults read com.apple.HIToolbox AppleSelectedInputSources
 # look at "KeyboardLayout Name"
 ```
 
-## Coexistence with qmk-hid-host
+## Device-busy conflicts
 
-`IOHIDDevice` is opened in exclusive mode by both daemons. If the Rust
-`qmk-hid-host` LaunchAgent **and** RuEnSync are running at the same time, the
-second one to open the device gets `kIOReturnExclusiveAccess` and stays
-disconnected. RuEnSync surfaces this in the menubar as **"Device busy
-(qmk-hid-host running?)"**.
+macOS gives exclusive access to an HID device to one process at a time. When
+something else holds the lock, RuEnSync surfaces it in the menubar as
+**"Device busy (qmk-hid-host running?)"**. Two common culprits:
 
-→ **Pick one.** If you used `qmk-hid-host` before, uninstall its LaunchAgent,
-then hit **Reconnect** in the RuEnSync menu.
+- **Vial is open.** Vial (or Via) claims the device while its window is
+  active for live-configuration / firmware writes. Just close the Vial window
+  — RuEnSync's auto-reconnect picks the device back up within a couple of
+  seconds. No manual action needed.
+- **`qmk-hid-host` daemon is running.** The Rust daemon holds the device
+  permanently. Pick one: uninstall its LaunchAgent (or `pkill qmk-hid-host`)
+  and hit **Reconnect** in the RuEnSync menu.
 
 ## Troubleshooting
 
