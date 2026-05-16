@@ -8,30 +8,27 @@ import Observation
 @MainActor
 @Observable
 final class AppModel {
-    enum Connection: Equatable {
-        case offline
-        case connected
-    }
-
     /// One row per configured device. Order matches `config.devices`. The
     /// menubar renders one line per status.
     struct DeviceStatus: Equatable, Identifiable {
-        let id: UInt32 // productId — unique within a single user's config
+        /// Array index in `config.devices`. Used as `Identifiable.id` so
+        /// SwiftUI ForEach stays well-defined when two devices share a
+        /// `productId` (e.g. a matched pair of identical keyboards).
+        let id: Int
         let name: String
         let productId: UInt32
         var state: HIDLink.State
-        var offlineReason: HIDLink.OfflineReason?
     }
 
     /// 0 = EN, anything else = RU (firmware convention). `nil` until the
     /// first layout read.
     private(set) var layoutIndex: UInt8?
 
-    /// Aggregate: connected iff at least one device-link is connected.
-    private(set) var connection: Connection = .offline
-
     /// Per-device status. Empty if config has no usable devices.
     private(set) var deviceStatuses: [DeviceStatus] = []
+
+    /// Recent events, newest first. UI binds to this for the activity panel.
+    let activity = ActivityStore()
 
     private let config: Config
     private var hidLinks: [HIDLink] = []
@@ -47,7 +44,11 @@ final class AppModel {
     func start() {
         layoutWatcher.onLayoutChanged = { [weak self] idx in
             guard let self else { return }
+            let previous = layoutIndex
             layoutIndex = idx
+            if previous != idx {
+                activity.record(.layoutChanged(label: idx == 0 ? "EN" : "RU"))
+            }
             for link in hidLinks {
                 link.send(layoutIndex: idx)
             }
@@ -60,6 +61,7 @@ final class AppModel {
     /// menubar button: lets users recover after killing a conflicting daemon
     /// (typically qmk-hid-host) without restarting the whole app.
     func reconnectAll() {
+        activity.record(.reconnectTriggered)
         for link in hidLinks {
             link.stop()
         }
@@ -73,18 +75,16 @@ final class AppModel {
             Log.app.error("no usable device in config — running in observe-only mode")
             hidLinks = []
             deviceStatuses = []
-            connection = .offline
             return
         }
 
         hidLinks = resolved.map(HIDLink.init)
-        deviceStatuses = resolved.map { dev in
+        deviceStatuses = resolved.enumerated().map { idx, dev in
             DeviceStatus(
-                id: dev.productId,
+                id: idx,
                 name: dev.name,
                 productId: dev.productId,
-                state: .offline,
-                offlineReason: .awaitingDevice
+                state: .offline(reason: .awaitingDevice)
             )
         }
 
@@ -99,15 +99,29 @@ final class AppModel {
     }
 
     private func handleLinkStateChange(idx: Int, state: HIDLink.State) {
-        guard idx < deviceStatuses.count else { return }
-        deviceStatuses[idx].state = state
-        deviceStatuses[idx].offlineReason = hidLinks[idx].offlineReason
-
-        let anyConnected = deviceStatuses.contains {
-            if case .connected = $0.state { return true }
-            return false
+        guard idx < deviceStatuses.count, idx < hidLinks.count else {
+            let statusesCount = deviceStatuses.count
+            let linksCount = hidLinks.count
+            Log.app
+                .fault(
+                    "handleLinkStateChange out-of-bounds: idx=\(idx) statuses=\(statusesCount) links=\(linksCount)"
+                )
+            return
         }
-        connection = anyConnected ? .connected : .offline
+        let previousState = deviceStatuses[idx].state
+        deviceStatuses[idx].state = state
+
+        let name = deviceStatuses[idx].name
+        switch (previousState, state) {
+        case (.offline, .connected):
+            activity.record(.deviceConnected(name: name))
+        case let (.connected, .offline(reason)):
+            activity.record(.deviceDisconnected(name: name, reason: reason.menuLabel))
+        case let (.offline(prev), .offline(now)) where prev != now:
+            activity.record(.deviceOfflineReasonChanged(name: name, reason: now.menuLabel))
+        default:
+            break
+        }
 
         // On per-device connect, push two packets in order:
         //   1. _OS_TYPE (MAC) — so firmware that knows 0xB0 flips into its
@@ -116,7 +130,21 @@ final class AppModel {
         //      a stale pre-disconnect state.
         // Firmware that doesn't know 0xB0 ignores it; layout still works.
         if case .connected = state {
-            hidLinks[idx].sendOSFlag()
+            let osOK = hidLinks[idx].sendOSFlag()
+            if !osOK {
+                // sendReport already logged the IOReturn at .error. .fault
+                // here so it surfaces in Console for users who didn't filter
+                // to .info/.debug; the headline feature of this app
+                // (auto-flip MAC mode after reflash) silently degrades into
+                // "you must press the on-keyboard toggle".
+                Log.hid
+                    .fault(
+                        "OS handshake failed for \(name, privacy: .public) — firmware will run in default (non-MAC) mode until reconnect"
+                    )
+                activity.record(.osHandshakeFailed(name: name))
+                return
+            }
+            activity.record(.osHandshakeSent(name: name))
             if let last = layoutWatcher.lastIndex {
                 hidLinks[idx].send(layoutIndex: last)
             }
@@ -136,20 +164,31 @@ extension AppModel {
         }
     }
 
+    /// True iff any configured device is currently connected. Derived from
+    /// `deviceStatuses`; no shadow field to keep in sync.
+    var isAnyDeviceConnected: Bool {
+        deviceStatuses.contains { if case .connected = $0.state { true } else { false } }
+    }
+
     /// Top-level human-readable status — used when there's a single device or
     /// no devices, otherwise the UI iterates `deviceStatuses` directly.
     var connectionDescription: String {
-        if deviceStatuses.isEmpty {
+        Self.describe(deviceStatuses)
+    }
+
+    /// Pure, testable formatter for the aggregate status line.
+    static func describe(_ statuses: [DeviceStatus]) -> String {
+        if statuses.isEmpty {
             return "No device configured"
         }
-        if deviceStatuses.count == 1, let status = deviceStatuses.first {
+        if statuses.count == 1, let status = statuses.first {
             return status.summary
         }
-        let connectedCount = deviceStatuses.filter {
+        let connectedCount = statuses.count(where: {
             if case .connected = $0.state { return true }
             return false
-        }.count
-        return "\(connectedCount) of \(deviceStatuses.count) connected"
+        })
+        return "\(connectedCount) of \(statuses.count) connected"
     }
 }
 
@@ -159,8 +198,8 @@ extension AppModel.DeviceStatus {
         switch state {
         case .connected:
             "\(name) — connected"
-        case .offline:
-            "\(name) — \((offlineReason ?? .awaitingDevice).menuLabel.lowercasedFirstLetter())"
+        case let .offline(reason):
+            "\(name) — \(reason.menuLabel.lowercasedFirstLetter())"
         }
     }
 
@@ -171,11 +210,11 @@ extension AppModel.DeviceStatus {
 
 // MARK: - String helper
 
-private extension String {
+extension String {
     /// Lowercases the first character. Used to splice `OfflineReason.menuLabel`
     /// ("Not connected") into a sentence after "—" without double-capitalising.
     func lowercasedFirstLetter() -> String {
-        guard let first = first else { return self }
+        guard let first else { return self }
         return first.lowercased() + dropFirst()
     }
 }

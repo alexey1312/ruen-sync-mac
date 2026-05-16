@@ -104,12 +104,18 @@ to listen for two packet shapes:
 pick either daemon without changing firmware.
 
 **`0xB0` is a RuEnSync extension** sent once on every connect (and on every
-manual Reconnect). Payload is the 4-byte ASCII magic from
+manual Reconnect). Payload is the 4-byte ASCII OS magic from
 [`nomis/qmk-hid-identify`](https://github.com/nomis/qmk-hid-identify): `MAC\0`,
 `LNX\0`, `WIN\0`, `BSD\0` (we only ever send `MAC\0` since the app is
 macOS-only). The firmware uses this to auto-flip into its macOS-Russian variant
 without the user touching an on-keyboard toggle after a reflash. Firmware that
 doesn't know `0xB0` ignores the unknown data_type — fully backward-compatible.
+
+**Wire-compat caveat:** we borrow only the 4-byte OS magic from
+`qmk-hid-identify`. nomis's actual wire format prefixes packets with
+`[0x00, 0x01]` instead of a data_type byte, so a firmware running nomis's
+unmodified `raw_hid_receive_identify` dispatcher will NOT pick up our packets.
+Compatibility is intentional at the magic level only.
 
 `0xB0` was chosen because qmk-hid-host's macOS build uses up to `0xAF` (Weather),
 and its Linux build uses `0xAD`/`0xAE` for MediaArtist/MediaTitle — `0xB0` is the

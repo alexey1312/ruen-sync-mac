@@ -66,7 +66,7 @@ struct HIDPacketTests {
         #expect(report[2] == 0x4D) // 'M'
         #expect(report[3] == 0x41) // 'A'
         #expect(report[4] == 0x43) // 'C'
-        #expect(report[5] == 0x00) // NUL — matches nomis/qmk-hid-identify wire format
+        #expect(report[5] == 0x00) // NUL — magic borrowed from nomis/qmk-hid-identify (not its full wire format)
     }
 
     @Test("OS report — bytes after the magic are zero-padded")

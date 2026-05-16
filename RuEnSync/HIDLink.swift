@@ -24,14 +24,18 @@ import os
 final class HIDLink {
     // MARK: State
 
+    /// Single source of truth for "is this device usable?". Carrying the
+    /// reason inside `.offline` makes impossible pairs (connected + reason,
+    /// offline without reason) unrepresentable — every state transition is
+    /// one assignment, and every UI consumer pattern-matches one value.
     enum State: Equatable {
-        case offline
+        case offline(reason: OfflineReason)
         case connected(productId: UInt32)
     }
 
-    /// Why we are currently offline. `nil` while connected. Surfaced in the
-    /// menubar so users know whether to plug the keyboard in, kill a
-    /// conflicting daemon, or file a bug.
+    /// Why we are currently offline. Surfaced in the menubar so users know
+    /// whether to plug the keyboard in, kill a conflicting daemon, or file
+    /// a bug.
     enum OfflineReason: Equatable {
         /// We just started up and IOKit hasn't matched any device yet, OR the
         /// keyboard is physically unplugged. Indistinguishable from here.
@@ -46,8 +50,7 @@ final class HIDLink {
         case managerOpenFailed(code: Int32)
     }
 
-    private(set) var state: State = .offline
-    private(set) var offlineReason: OfflineReason? = .awaitingDevice
+    private(set) var state: State = .offline(reason: .awaitingDevice)
     var onStateChange: ((State) -> Void)?
 
     // MARK: Configuration
@@ -56,6 +59,10 @@ final class HIDLink {
     private let manager: IOHIDManager
     private var openedDevice: IOHIDDevice?
     private var hasStarted = false
+    /// Opaque pointer to `Unmanaged.passRetained(self)` handed to IOKit
+    /// callbacks. Released in `stop()` to balance the retain — kept here so
+    /// we have a handle to release exactly once.
+    private var callbackContext: UnsafeMutableRawPointer?
 
     // MARK: Protocol constants (immutable; safe to access nonisolated)
 
@@ -66,14 +73,21 @@ final class HIDLink {
     nonisolated static let layoutDataType: UInt8 = 0xAC
 
     /// `_OS_TYPE` — RuEnSync-specific extension. Chosen as 0xB0 because
-    /// qmk-hid-host's macOS build uses up to 0xAF (Weather), so 0xB0 is the
-    /// first safely-free byte that won't collide with any qmk-hid-host
-    /// payload across any platform. Payload is a 4-byte ASCII magic compatible
-    /// with `nomis/qmk-hid-identify` (`MAC\0` / `LNX\0` / `WIN\0` / `BSD\0`).
+    /// qmk-hid-host's macOS build uses up to 0xAF (Weather) and its Linux
+    /// build uses 0xAD/0xAE (MediaArtist/MediaTitle), so 0xB0 is the first
+    /// byte safely free across all qmk-hid-host platforms.
+    ///
+    /// Wire-compat note: we reuse the 4-byte ASCII OS magic from
+    /// `nomis/qmk-hid-identify` (`MAC\0` / `LNX\0` / `WIN\0` / `BSD\0`), but
+    /// NOT nomis's full wire format — nomis prefixes packets with
+    /// `[0x00, 0x01]` rather than a data_type byte, so a stock nomis
+    /// dispatcher will not pick up our packet. The
+    /// `split_keyboard_layouts/firmware/crkbd.c.patch` matches our `0xB0`
+    /// directly.
     nonisolated static let osTypeDataType: UInt8 = 0xB0
 
-    /// `MAC\0` magic from `nomis/qmk-hid-identify`. RuEnSync is macOS-only,
-    /// so this is the only magic we ever send.
+    /// `MAC\0` magic borrowed from `nomis/qmk-hid-identify`. RuEnSync is
+    /// macOS-only, so this is the only magic we ever send.
     nonisolated static let osMagicMac: [UInt8] = [0x4D, 0x41, 0x43, 0x00]
 
     /// QMK `RAW_EPSIZE` = 32 bytes payload, plus 1 byte report ID prefix = 33.
@@ -102,10 +116,14 @@ final class HIDLink {
         ]
         IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
 
-        // Pass `self` as unretained context. We are `@MainActor`-bound and
-        // schedule callbacks onto the main run loop, so unretained is safe —
-        // HIDLink outlives the manager (we deinit before the manager goes).
-        let context = Unmanaged.passUnretained(self).toOpaque()
+        // Pass `self` as a retained context. AppModel.reconnectAll() drops the
+        // strong reference to this HIDLink before tearing down the manager, so
+        // an unretained pointer could read freed memory if IOKit dispatches a
+        // matched/removed callback in that window. The matching `release()` is
+        // in `stop()` once the manager is closed and no further callbacks can
+        // fire.
+        let context = Unmanaged.passRetained(self).toOpaque()
+        callbackContext = context
 
         IOHIDManagerRegisterDeviceMatchingCallback(manager, { ctx, _, _, ioDevice in
             guard let ctx else { return }
@@ -135,18 +153,6 @@ final class HIDLink {
                     "watching pid=\(pid, privacy: .public) usagePage=\(page, privacy: .public) usage=\(usage, privacy: .public)"
                 )
         }
-    }
-
-    /// Tears down and immediately restarts. Wired to the "Reconnect" menu
-    /// button — gives users a way to recover after killing a conflicting
-    /// daemon (e.g. qmk-hid-host) without restarting the whole app.
-    func reconnect() {
-        stop()
-        hasStarted = false
-        // Manager handle is dead after `stop()`; the field is `let`, so the
-        // proper restart path is on the AppModel side (re-create HIDLink).
-        // We expose `reconnect()` mainly so AppModel can implement that via a
-        // single call; see `AppModel.reconnectAll()`.
     }
 
     /// Sends a layout-change packet. `idx == 0` means EN, anything else means
@@ -186,21 +192,28 @@ final class HIDLink {
         )
 
         if result == kIOReturnSuccess {
-            Log.hid.info("sent \(label, privacy: .public)")
+            let pid = String(format: "0x%04X", device.productId)
+            Log.hid.info("sent \(label, privacy: .public) to pid=\(pid, privacy: .public)")
             return true
         }
         let code = String(format: "0x%08X", result)
-        Log.hid.error("IOHIDDeviceSetReport failed: \(code, privacy: .public) for \(label, privacy: .public)")
-        // The device disappeared or stopped accepting reports. Drop our handle
-        // and go offline so the menubar reflects reality; IOKit will refire
-        // device-matched if/when the keyboard comes back. (Better than the
-        // previous silent-drop: the user would have seen "connected" while
-        // nothing was actually getting through.)
-        if result == kIOReturnNotOpen || result == kIOReturnNoDevice {
-            IOHIDDeviceClose(opened, IOOptionBits(kIOHIDOptionsTypeNone))
-            openedDevice = nil
-            transitionToOffline(reason: .openFailed(code: result))
-        }
+        let pid = String(format: "0x%04X", device.productId)
+        Log.hid
+            .error(
+                "IOHIDDeviceSetReport failed: \(code, privacy: .public) for \(label, privacy: .public) pid=\(pid, privacy: .public)"
+            )
+        // Any non-success means this transport is broken: kIOReturnNotOpen /
+        // NoDevice / NotAttached are obvious removals; kIOReturnError / Timeout
+        // / Aborted / NotResponding indicate a stalled endpoint or unplugged
+        // hub. Staying "connected" in the menubar while reports silently fail
+        // is worse than going offline — IOKit will refire device-matched if
+        // and when the keyboard reappears, and the user can hit Reconnect.
+        IOHIDDeviceClose(opened, IOOptionBits(kIOHIDOptionsTypeNone))
+        openedDevice = nil
+        let reason: OfflineReason = (result == kIOReturnExclusiveAccess)
+            ? .exclusiveAccess
+            : .openFailed(code: result)
+        transitionToOffline(reason: reason)
         return false
     }
 
@@ -226,7 +239,6 @@ final class HIDLink {
         }
         openedDevice = ioDevice
         state = .connected(productId: device.productId)
-        offlineReason = nil
         let pid = String(format: "0x%04X", device.productId)
         Log.hid.info("matched device pid=\(pid, privacy: .public)")
         onStateChange?(state)
@@ -242,8 +254,7 @@ final class HIDLink {
     }
 
     private func transitionToOffline(reason: OfflineReason) {
-        state = .offline
-        offlineReason = reason
+        state = .offline(reason: reason)
         onStateChange?(state)
     }
 
@@ -262,6 +273,12 @@ final class HIDLink {
         }
         IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
         IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        // Balance the retain from `start()`. After IOHIDManagerClose, no
+        // further matching/removal callbacks can fire — safe to release.
+        if let ctx = callbackContext {
+            Unmanaged<HIDLink>.fromOpaque(ctx).release()
+            callbackContext = nil
+        }
     }
 }
 
