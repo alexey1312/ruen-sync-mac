@@ -6,6 +6,9 @@ import SwiftUI
 @main
 struct RuEnSyncApp: App {
     @State private var model: AppModel
+    /// Sparkle controller has to outlive the app — keeping it as @State (a
+    /// reference type stays put-by-identity) is the documented pattern.
+    @State private var updater = Updater()
 
     init() {
         let config = ConfigStore.loadOrSeedDefaults()
@@ -19,7 +22,7 @@ struct RuEnSyncApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(model: model)
+            MenuContent(model: model, updater: updater)
         } label: {
             MenuLabel(model: model)
         }
@@ -101,6 +104,7 @@ private struct MenuLabel: View {
 
 private struct MenuContent: View {
     let model: AppModel
+    let updater: Updater
     @State private var showActivity = false
 
     var body: some View {
@@ -157,6 +161,10 @@ private struct MenuContent: View {
             openLogStream()
         }
 
+        Divider()
+
+        CheckForUpdatesMenuItem(updater: updater)
+
         Button("Quit RuEnSync") {
             NSApplication.shared.terminate(nil)
         }
@@ -201,6 +209,35 @@ private struct MenuContent: View {
                     "openLogStream failed: \(nsError.domain, privacy: .public) code=\(nsError.code) — \(nsError.localizedDescription, privacy: .public)"
                 )
         }
+    }
+}
+
+// MARK: - Updates
+
+/// Menu item that triggers Sparkle's update check. We can't bind directly to
+/// `updater.canCheckForUpdates` because Sparkle's `SPUUpdater` is KVO-based,
+/// not `@Observable`; the view-model in `Updater.swift` bridges KVO into
+/// `@Published`, which SwiftUI's `@StateObject` knows how to track. This is
+/// the pattern Sparkle's own SwiftUI docs recommend.
+///
+/// `@StateObject` rather than `@ObservedObject`: this view owns the lifetime
+/// of `CheckForUpdatesViewModel`. With `@ObservedObject`, a parent re-render
+/// would rebuild the VM (and its KVO subscription), silently breaking the
+/// disable-while-checking behaviour.
+private struct CheckForUpdatesMenuItem: View {
+    let updater: Updater
+    @StateObject private var checker: CheckForUpdatesViewModel
+
+    init(updater: Updater) {
+        self.updater = updater
+        _checker = StateObject(wrappedValue: CheckForUpdatesViewModel(updater: updater.updater))
+    }
+
+    var body: some View {
+        Button("Check for Updates…") {
+            updater.checkForUpdates()
+        }
+        .disabled(!checker.canCheckForUpdates)
     }
 }
 

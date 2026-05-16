@@ -36,6 +36,26 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Building version ${VERSION}"
 
+      # Sync MARKETING_VERSION + CURRENT_PROJECT_VERSION in Project.swift to
+      # the tag. Repo-committed value is just a dev default; the tag is the
+      # source of truth for what ships in Info.plist.
+      - name: Inject version into Project.swift
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          awk -v v="$VERSION" '
+            /"MARKETING_VERSION":/ {
+              sub(/"MARKETING_VERSION": "[^"]+"/, "\"MARKETING_VERSION\": \"" v "\"")
+            }
+            /"CURRENT_PROJECT_VERSION":/ {
+              sub(/"CURRENT_PROJECT_VERSION": "[^"]+"/, "\"CURRENT_PROJECT_VERSION\": \"" v "\"")
+            }
+            { print }
+          ' Project.swift > Project.swift.tmp
+          mv Project.swift.tmp Project.swift
+          echo "Synced Project.swift to ${VERSION}:"
+          grep -E '"(MARKETING|CURRENT_PROJECT)_VERSION":' Project.swift
+
       - name: Generate Xcode project
         run: mise run generate
 
@@ -102,6 +122,81 @@ jobs:
           DMG_SHA="$(shasum -a 256 build/dist/RuEnSync.dmg | awk '{print $1}')"
           echo "dmg_sha=${DMG_SHA}" >> "$GITHUB_OUTPUT"
           echo "DMG SHA256: ${DMG_SHA}"
+
+      # ----------------------------------------------------------------------
+      # Sparkle: sign DMG with EdDSA + regenerate appcast.xml + publish.
+      # Only runs when SPARKLE_PRIVATE_KEY is configured. Until then, the
+      # release ships without an appcast entry — existing installs won't
+      # auto-update for this version, but the DMG remains usable manually.
+      # ----------------------------------------------------------------------
+      - name: Sign DMG and regenerate appcast
+        if: ${{ env.HAS_SPARKLE_KEY == 'true' }}
+        env:
+          HAS_SPARKLE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY != '' && 'true' || 'false' }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+          SPARKLE_VERSION: "2.6.4"
+        run: |
+          set -euo pipefail
+          # Download just the Sparkle tools (sign_update, generate_appcast).
+          # The .framework that ships in the .app is built separately by SPM
+          # — this tarball is only for the CLI binaries.
+          curl -sSL -o sparkle.tar.xz \
+            "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+          mkdir -p sparkle-tools
+          tar -xJf sparkle.tar.xz -C sparkle-tools
+          SPARKLE_BIN="$(pwd)/sparkle-tools/bin"
+
+          # Write the EdDSA private key to a tmp file for sign_update.
+          KEYFILE="$(mktemp)"
+          chmod 600 "$KEYFILE"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$KEYFILE"
+          trap 'rm -f "$KEYFILE"' EXIT
+
+          # Stage the DMG in a clean folder; generate_appcast walks the dir.
+          mkdir -p appcast-work
+          cp build/dist/RuEnSync.dmg appcast-work/
+
+          # Pull the current appcast so generate_appcast preserves history.
+          # 404 on first run is fine — appcast-work will just have one item.
+          curl -sSL --fail \
+            "https://alexey1312.github.io/${REPO##*/}/appcast.xml" \
+            -o appcast-work/appcast.xml || rm -f appcast-work/appcast.xml
+
+          "$SPARKLE_BIN/generate_appcast" appcast-work \
+            --ed-key-file "$KEYFILE" \
+            --download-url-prefix "https://github.com/${REPO}/releases/download/v${VERSION}/" \
+            --link "https://github.com/${REPO}"
+
+          echo "Generated appcast.xml:"
+          cat appcast-work/appcast.xml
+
+      - name: Publish appcast to gh-pages
+        if: ${{ env.HAS_SPARKLE_KEY == 'true' }}
+        env:
+          HAS_SPARKLE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY != '' && 'true' || 'false' }}
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+          PAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Clone the gh-pages branch via the workflow's built-in token.
+          # Requires the branch to exist (setup is one-off — see README).
+          git clone --branch gh-pages \
+            "https://x-access-token:${PAGES_TOKEN}@github.com/${REPO}.git" \
+            pages
+          cp appcast-work/appcast.xml pages/appcast.xml
+          cd pages
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          if git diff --cached --quiet; then
+            echo "Appcast unchanged — skipping push"
+          else
+            git commit -m "appcast: ${VERSION}"
+            git push
+          fi
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
