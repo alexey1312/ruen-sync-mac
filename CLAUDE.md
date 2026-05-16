@@ -13,7 +13,9 @@ written specifically for the
 
 - **Tuist** (`Project.swift`, `Tuist.swift`) generates the Xcode project. No checked-in
   `.xcodeproj` — regenerate with `mise run generate`.
-- **Swift 6** with strict concurrency. macOS 26 minimum.
+- **Swift 6** with strict concurrency. macOS 14 (Sonoma) minimum — bound by
+  `@Observable` / Observation framework. Lowering further would require
+  switching to `ObservableObject`/`@Published`.
 - **SwiftUI** `MenuBarExtra` (the new declarative menubar API).
 - **mise** drives all tasks (build, test, lint, format, release). See `mise.toml`.
 - **hk + pkl** for git hooks (pre-commit auto-formats + lints).
@@ -79,8 +81,10 @@ Scripts/
 
 7. **IOHIDDevice is opened in exclusive mode.** Only one process at a time. If
    `qmk-hid-host` is also running, the second one to open gets
-   `kIOReturnExclusiveAccess` and stays disconnected. Document this in README;
-   currently we just log the error and stay offline (no toast/popup).
+   `kIOReturnExclusiveAccess`. We surface this in the menubar as
+   `"Device busy (qmk-hid-host running?)"` via `HIDLink.OfflineReason`; the
+   "Reconnect" menu button (`AppModel.reconnectAll()`) lets the user retry
+   after killing the conflicting daemon without restarting the app.
 
 8. **`SMAppService.mainApp.register()` is idempotent and safe.** Call on every launch
    — it no-ops if already registered. Status `.requiresApproval` means the user
@@ -91,16 +95,36 @@ Scripts/
 
 The keyboard side is in [split_keyboard_layouts/firmware/](https://github.com/alexey1312/split_keyboard_layouts/tree/main/firmware).
 The relevant patch is `firmware/crkbd.c.patch`, which wires `raw_hid_receive_kb`
-to listen for one packet shape:
+to listen for two packet shapes:
 
 ```
-[0xAC, idx]    // 0xAC = _LAYOUT data type; idx 0 = EN, anything else = RU
+[0xAC, idx]              // _LAYOUT  — idx 0 = EN, anything else = RU
+[0xB0, 'M','A','C',0x00] // _OS_TYPE — RuEnSync-specific, sent on every connect
 ```
 
-This **must stay byte-for-byte compatible** with `qmk-hid-host` so users can pick
-either daemon without changing firmware. If you ever need to extend the protocol
-(e.g. push `mac_layout` from host), pick a new data_type byte (0xAD onwards) and
-update **both** sides.
+**`0xAC` MUST stay byte-for-byte compatible with `qmk-hid-host`** so users can
+pick either daemon without changing firmware.
+
+**`0xB0` is a RuEnSync extension** sent once on every connect (and on every
+manual Reconnect). Payload is the 4-byte ASCII OS magic from
+[`nomis/qmk-hid-identify`](https://github.com/nomis/qmk-hid-identify): `MAC\0`,
+`LNX\0`, `WIN\0`, `BSD\0` (we only ever send `MAC\0` since the app is
+macOS-only). The firmware uses this to auto-flip into its macOS-Russian variant
+without the user touching an on-keyboard toggle after a reflash. Firmware that
+doesn't know `0xB0` ignores the unknown data_type — fully backward-compatible.
+
+**Wire-compat caveat:** we borrow only the 4-byte OS magic from
+`qmk-hid-identify`. nomis's actual wire format prefixes packets with
+`[0x00, 0x01]` instead of a data_type byte, so a firmware running nomis's
+unmodified `raw_hid_receive_identify` dispatcher will NOT pick up our packets.
+Compatibility is intentional at the magic level only.
+
+`0xB0` was chosen because qmk-hid-host's macOS build uses up to `0xAF` (Weather),
+and its Linux build uses `0xAD`/`0xAE` for MediaArtist/MediaTitle — `0xB0` is the
+first byte safely free across all qmk-hid-host platforms.
+
+If you ever need to extend the protocol further (time tick, caps state, active
+app hash), pick a new data_type byte (`0xB1` onwards) and update **both** sides.
 
 ## Common tasks
 

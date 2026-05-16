@@ -8,8 +8,14 @@ import os
 /// Owns an `IOHIDManager` filtered to the configured Raw HID interface
 /// (UsagePage 0xFF60, Usage 0x61, ProductID = config.productId). Sends one
 /// 33-byte Output Report per layout change. Bit-for-bit identical to
-/// qmk-hid-host's wire format, so any unmodified Vial-QMK firmware listening
-/// for `[0xAC, idx, …]` accepts our packets.
+/// qmk-hid-host's wire format for `_LAYOUT`, so any unmodified Vial-QMK
+/// firmware listening for `[0xAC, idx, …]` accepts our packets.
+///
+/// Beyond `qmk-hid-host`, we also push a one-shot `_OS_TYPE` packet
+/// (`[0xB0, 'M', 'A', 'C', 0x00, …]`) immediately on every device connect.
+/// Firmware that knows this data_type can flip into its macOS-Russian variant
+/// without manual EEPROM toggling after a reflash; firmware that doesn't ignores
+/// the unknown data_type and behaves exactly as before.
 ///
 /// Threading: all IOHIDManager callbacks land on the main run loop because we
 /// schedule onto `CFRunLoopGetMain()`. The owner (AppModel) is `@MainActor`,
@@ -18,19 +24,45 @@ import os
 final class HIDLink {
     // MARK: State
 
+    /// Single source of truth for "is this device usable?". Carrying the
+    /// reason inside `.offline` makes impossible pairs (connected + reason,
+    /// offline without reason) unrepresentable — every state transition is
+    /// one assignment, and every UI consumer pattern-matches one value.
     enum State: Equatable {
-        case offline
+        case offline(reason: OfflineReason)
         case connected(productId: UInt32)
     }
 
-    private(set) var state: State = .offline
+    /// Why we are currently offline. Surfaced in the menubar so users know
+    /// whether to plug the keyboard in, kill a conflicting daemon, or file
+    /// a bug.
+    enum OfflineReason: Equatable {
+        /// We just started up and IOKit hasn't matched any device yet, OR the
+        /// keyboard is physically unplugged. Indistinguishable from here.
+        case awaitingDevice
+        /// Another process (typically `qmk-hid-host`) holds exclusive access.
+        case exclusiveAccess
+        /// `IOHIDDeviceOpen` failed for some other reason. Includes the raw
+        /// `IOReturn` code so we can surface a hex string.
+        case openFailed(code: Int32)
+        /// `IOHIDManagerOpen` failed at startup — usually a permissions issue
+        /// or an OS bug. Includes the raw `IOReturn` code.
+        case managerOpenFailed(code: Int32)
+    }
+
+    private(set) var state: State = .offline(reason: .awaitingDevice)
     var onStateChange: ((State) -> Void)?
 
     // MARK: Configuration
 
-    private let device: ResolvedDevice
+    let device: ResolvedDevice
     private let manager: IOHIDManager
     private var openedDevice: IOHIDDevice?
+    private var hasStarted = false
+    /// Opaque pointer to `Unmanaged.passRetained(self)` handed to IOKit
+    /// callbacks. Released in `stop()` to balance the retain — kept here so
+    /// we have a handle to release exactly once.
+    private var callbackContext: UnsafeMutableRawPointer?
 
     // MARK: Protocol constants (immutable; safe to access nonisolated)
 
@@ -39,6 +71,24 @@ final class HIDLink {
     /// HID report (offset 0 is the report ID, which is what hidapi convention
     /// places it at, and what `IOHIDDeviceSetReport` expects).
     nonisolated static let layoutDataType: UInt8 = 0xAC
+
+    /// `_OS_TYPE` — RuEnSync-specific extension. Chosen as 0xB0 because
+    /// qmk-hid-host's macOS build uses up to 0xAF (Weather) and its Linux
+    /// build uses 0xAD/0xAE (MediaArtist/MediaTitle), so 0xB0 is the first
+    /// byte safely free across all qmk-hid-host platforms.
+    ///
+    /// Wire-compat note: we reuse the 4-byte ASCII OS magic from
+    /// `nomis/qmk-hid-identify` (`MAC\0` / `LNX\0` / `WIN\0` / `BSD\0`), but
+    /// NOT nomis's full wire format — nomis prefixes packets with
+    /// `[0x00, 0x01]` rather than a data_type byte, so a stock nomis
+    /// dispatcher will not pick up our packet. The
+    /// `split_keyboard_layouts/firmware/crkbd.c.patch` matches our `0xB0`
+    /// directly.
+    nonisolated static let osTypeDataType: UInt8 = 0xB0
+
+    /// `MAC\0` magic borrowed from `nomis/qmk-hid-identify`. RuEnSync is
+    /// macOS-only, so this is the only magic we ever send.
+    nonisolated static let osMagicMac: [UInt8] = [0x4D, 0x41, 0x43, 0x00]
 
     /// QMK `RAW_EPSIZE` = 32 bytes payload, plus 1 byte report ID prefix = 33.
     nonisolated static let reportSize: Int = 33
@@ -56,6 +106,9 @@ final class HIDLink {
     /// device-matching / removal callbacks. Idempotent: calling `start` twice
     /// is a no-op (manager keeps its existing schedule).
     func start() {
+        if hasStarted { return }
+        hasStarted = true
+
         let matching: [String: Any] = [
             kIOHIDPrimaryUsagePageKey: NSNumber(value: device.usagePage),
             kIOHIDPrimaryUsageKey: NSNumber(value: device.usage),
@@ -63,10 +116,14 @@ final class HIDLink {
         ]
         IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
 
-        // Pass `self` as unretained context. We are `@MainActor`-bound and
-        // schedule callbacks onto the main run loop, so unretained is safe —
-        // HIDLink outlives the manager (we deinit before the manager goes).
-        let context = Unmanaged.passUnretained(self).toOpaque()
+        // Pass `self` as a retained context. AppModel.reconnectAll() drops the
+        // strong reference to this HIDLink before tearing down the manager, so
+        // an unretained pointer could read freed memory if IOKit dispatches a
+        // matched/removed callback in that window. The matching `release()` is
+        // in `stop()` once the manager is closed and no further callbacks can
+        // fire.
+        let context = Unmanaged.passRetained(self).toOpaque()
+        callbackContext = context
 
         IOHIDManagerRegisterDeviceMatchingCallback(manager, { ctx, _, _, ioDevice in
             guard let ctx else { return }
@@ -86,6 +143,7 @@ final class HIDLink {
         if result != kIOReturnSuccess {
             let code = String(format: "0x%08X", result)
             Log.hid.error("IOHIDManagerOpen failed: \(code, privacy: .public)")
+            transitionToOffline(reason: .managerOpenFailed(code: result))
         } else {
             let pid = String(format: "0x%04X", device.productId)
             let page = String(format: "0x%04X", device.usagePage)
@@ -101,34 +159,61 @@ final class HIDLink {
     /// RU (firmware contract). No-op if no device is currently connected.
     @discardableResult
     func send(layoutIndex: UInt8) -> Bool {
+        let report = Self.buildReport(layoutIndex: layoutIndex)
+        guard sendReport(report, label: "idx=\(layoutIndex)") else { return false }
+        return true
+    }
+
+    /// Sends a one-shot `_OS_TYPE` packet with `MAC\0` magic. Called by
+    /// AppModel immediately after every successful connect — that way
+    /// firmware that supports the new data_type wakes up in Mac mode without
+    /// the user touching the keyboard.
+    @discardableResult
+    func sendOSFlag() -> Bool {
+        let report = Self.buildOSReport()
+        return sendReport(report, label: "OS=MAC")
+    }
+
+    // MARK: Internal send
+
+    private func sendReport(_ report: [UInt8], label: String) -> Bool {
         guard let opened = openedDevice else {
-            Log.hid.debug("send(\(layoutIndex)) ignored — device not connected")
+            Log.hid.debug("send(\(label, privacy: .public)) ignored — device not connected")
             return false
         }
 
-        var report = [UInt8](repeating: 0, count: Self.reportSize)
-        report[0] = 0x00 // report ID
-        report[1] = Self.layoutDataType
-        report[2] = layoutIndex
-
+        var buffer = report
         let result = IOHIDDeviceSetReport(
             opened,
             kIOHIDReportTypeOutput,
             0, // report ID matches byte 0
-            &report,
-            report.count
+            &buffer,
+            buffer.count
         )
 
         if result == kIOReturnSuccess {
-            Log.hid.info("sent idx=\(layoutIndex)")
+            let pid = String(format: "0x%04X", device.productId)
+            Log.hid.info("sent \(label, privacy: .public) to pid=\(pid, privacy: .public)")
             return true
         }
-        Log.hid.error(
-            "IOHIDDeviceSetReport failed: \(String(format: "0x%08X", result), privacy: .public)"
-        )
-        // TODO(USER_INPUT): decide error-handling strategy here. See README.
-        // Options: silently drop and wait for next switch; tear down + reopen
-        // the device; show error in menubar. For now we drop and continue.
+        let code = String(format: "0x%08X", result)
+        let pid = String(format: "0x%04X", device.productId)
+        Log.hid
+            .error(
+                "IOHIDDeviceSetReport failed: \(code, privacy: .public) for \(label, privacy: .public) pid=\(pid, privacy: .public)"
+            )
+        // Any non-success means this transport is broken: kIOReturnNotOpen /
+        // NoDevice / NotAttached are obvious removals; kIOReturnError / Timeout
+        // / Aborted / NotResponding indicate a stalled endpoint or unplugged
+        // hub. Staying "connected" in the menubar while reports silently fail
+        // is worse than going offline — IOKit will refire device-matched if
+        // and when the keyboard reappears, and the user can hit Reconnect.
+        IOHIDDeviceClose(opened, IOOptionBits(kIOHIDOptionsTypeNone))
+        openedDevice = nil
+        let reason: OfflineReason = (result == kIOReturnExclusiveAccess)
+            ? .exclusiveAccess
+            : .openFailed(code: result)
+        transitionToOffline(reason: reason)
         return false
     }
 
@@ -146,6 +231,10 @@ final class HIDLink {
             let code = String(format: "0x%08X", result)
             Log.hid
                 .error("IOHIDDeviceOpen failed: \(code, privacy: .public) — may be held by another app (qmk-hid-host?)")
+            let reason: OfflineReason = (result == kIOReturnExclusiveAccess)
+                ? .exclusiveAccess
+                : .openFailed(code: result)
+            transitionToOffline(reason: reason)
             return
         }
         openedDevice = ioDevice
@@ -159,9 +248,13 @@ final class HIDLink {
         guard let opened = openedDevice, CFEqual(opened, ioDevice) else { return }
         IOHIDDeviceClose(opened, IOOptionBits(kIOHIDOptionsTypeNone))
         openedDevice = nil
-        state = .offline
         let pid = String(format: "0x%04X", device.productId)
         Log.hid.info("device removed pid=\(pid, privacy: .public)")
+        transitionToOffline(reason: .awaitingDevice)
+    }
+
+    private func transitionToOffline(reason: OfflineReason) {
+        state = .offline(reason: reason)
         onStateChange?(state)
     }
 
@@ -180,19 +273,56 @@ final class HIDLink {
         }
         IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
         IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        // Balance the retain from `start()`. After IOHIDManagerClose, no
+        // further matching/removal callbacks can fire — safe to release.
+        if let ctx = callbackContext {
+            Unmanaged<HIDLink>.fromOpaque(ctx).release()
+            callbackContext = nil
+        }
     }
 }
 
 // MARK: - Helpers
 
 extension HIDLink {
-    /// Builds the wire-format report. Pure function, exposed for unit tests
-    /// and identical to what `send(layoutIndex:)` writes to the device.
+    /// Builds the wire-format layout report. Pure function, exposed for unit
+    /// tests and identical to what `send(layoutIndex:)` writes to the device.
     nonisolated static func buildReport(layoutIndex: UInt8) -> [UInt8] {
         var report = [UInt8](repeating: 0, count: reportSize)
         report[0] = 0x00
         report[1] = layoutDataType
         report[2] = layoutIndex
         return report
+    }
+
+    /// Builds the wire-format `_OS_TYPE` report. `[0x00, 0xB0, 'M', 'A', 'C',
+    /// 0x00, …]`. Pure function, exposed for unit tests.
+    nonisolated static func buildOSReport() -> [UInt8] {
+        var report = [UInt8](repeating: 0, count: reportSize)
+        report[0] = 0x00
+        report[1] = osTypeDataType
+        for (offset, byte) in osMagicMac.enumerated() {
+            report[2 + offset] = byte
+        }
+        return report
+    }
+}
+
+// MARK: - Display helpers
+
+extension HIDLink.OfflineReason {
+    /// Human-readable label for the menubar. Kept short — surfaces in a
+    /// secondary-color caption row, not a sentence.
+    var menuLabel: String {
+        switch self {
+        case .awaitingDevice:
+            "Not connected"
+        case .exclusiveAccess:
+            "Device busy (qmk-hid-host running?)"
+        case let .openFailed(code):
+            "Open failed (\(String(format: "0x%08X", code)))"
+        case let .managerOpenFailed(code):
+            "HID manager open failed (\(String(format: "0x%08X", code)))"
+        }
     }
 }
