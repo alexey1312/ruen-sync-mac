@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/ci.yml/badge.svg)](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/ci.yml)
 [![Release](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/release.yml/badge.svg)](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/release.yml)
-[![macOS](https://img.shields.io/badge/macOS-26%2B-blue)](https://www.apple.com/macos/)
+[![macOS](https://img.shields.io/badge/macOS-14%2B-blue)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-orange)](https://swift.org)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
@@ -21,7 +21,7 @@ Raw HID interface.
 
 ## Install
 
-### Homebrew (recommended once a release is tagged)
+### Homebrew (recommended)
 
 ```bash
 brew install --cask alexey1312/tap/ruensync
@@ -117,6 +117,21 @@ defaults read com.apple.HIToolbox AppleSelectedInputSources
 # look at "KeyboardLayout Name"
 ```
 
+## Activity log
+
+The menubar dropdown has an **Activity** sub-menu listing recent layout switches,
+device connects/disconnects, and `_OS_TYPE` handshake results — useful when
+debugging "why didn't my keyboard pick up the change?".
+
+Entries persist across launches in a SQLite database at
+`~/.config/RuEnSync/activity.db` (next to `config.json`). The menubar mirrors
+the latest 100; the database keeps the full history so a future CLI or health
+panel has a single source of truth. The DB opens in WAL mode, so any
+companion process can co-read/write without blocking the menubar.
+
+To wipe history: **Activity → Clear activity** in the menu, or
+`rm ~/.config/RuEnSync/activity.db`.
+
 ## Architecture
 
 ```
@@ -145,17 +160,19 @@ defaults read com.apple.HIToolbox AppleSelectedInputSources
 
 Source layout:
 
-| File                             | Role                                                    |
-| -------------------------------- | ------------------------------------------------------- |
-| `RuEnSync/RuEnSyncApp.swift`     | SwiftUI `@main`, `MenuBarExtra` icon + menu             |
-| `RuEnSync/AppModel.swift`        | `@Observable` state, wires Watcher and Link             |
-| `RuEnSync/LayoutWatcher.swift`   | Carbon TIS + `DistributedNotificationCenter` subscriber |
-| `RuEnSync/HIDLink.swift`         | `IOHIDManager` matching, open/close, `SetReport`        |
-| `RuEnSync/ConfigStore.swift`     | Schema + load/seed-default                              |
-| `RuEnSync/LoginItem.swift`       | `SMAppService.mainApp` register/unregister              |
-| `RuEnSync/Updater.swift`         | Sparkle wrapper + SwiftUI view-model bridge             |
-| `RuEnSync/RuEnSync.entitlements` | Empty: IOKit/Carbon work outside the sandbox            |
-| `Project.swift`                  | Tuist project description                               |
+| File                              | Role                                                    |
+| --------------------------------- | ------------------------------------------------------- |
+| `RuEnSync/RuEnSyncApp.swift`      | SwiftUI `@main`, `MenuBarExtra` icon + menu             |
+| `RuEnSync/AppModel.swift`         | `@Observable` state, wires Watcher and Link             |
+| `RuEnSync/LayoutWatcher.swift`    | Carbon TIS + `DistributedNotificationCenter` subscriber |
+| `RuEnSync/HIDLink.swift`          | `IOHIDManager` matching, open/close, `SetReport`        |
+| `RuEnSync/ConfigStore.swift`      | Schema + load/seed-default                              |
+| `RuEnSync/LoginItem.swift`        | `SMAppService.mainApp` register/unregister              |
+| `RuEnSync/Updater.swift`          | Sparkle wrapper + SwiftUI view-model bridge             |
+| `RuEnSync/ActivityStore.swift`    | Recent-events log mirror (in-memory), @Observable       |
+| `RuEnSync/ActivityDatabase.swift` | SQLite persistence for the activity log                 |
+| `RuEnSync/RuEnSync.entitlements`  | Empty: IOKit/Carbon work outside the sandbox            |
+| `Project.swift`                   | Tuist project description                               |
 
 ## Coexistence with qmk-hid-host
 

@@ -15,7 +15,13 @@ import SQLite
 /// WAL journal mode is enabled pre-emptively even though we currently
 /// have a single writer — it makes any future CLI/MCP companion safe to
 /// co-write without locking out the menubar process.
-final class ActivityDatabase: @unchecked Sendable {
+///
+/// `@MainActor`-isolated because the only caller is `ActivityStore`, which
+/// itself runs on the main actor. Pinning isolation here lets Swift 6
+/// enforce single-threaded access at the type system level (and avoids the
+/// `@unchecked Sendable` escape hatch).
+@MainActor
+final class ActivityDatabase {
     private let connection: Connection
 
     /// Opens the database at `path`. Pass `":memory:"` for an in-memory
@@ -29,13 +35,17 @@ final class ActivityDatabase: @unchecked Sendable {
 
     // MARK: - Schema
 
-    private static let activity = Table("activity")
-    private static let colID = SQLite.Expression<String>("id")
-    private static let colTimestamp = SQLite.Expression<Double>("timestamp")
-    private static let colKind = SQLite.Expression<String>("kind")
-    private static let colDeviceName = SQLite.Expression<String?>("device_name")
-    private static let colReason = SQLite.Expression<String?>("reason")
-    private static let colLabel = SQLite.Expression<String?>("label")
+    // Static `Expression`s on a `@MainActor` class would otherwise inherit
+    // main-actor isolation — making them unusable from any future
+    // nonisolated test helper or query builder. Pinning them `nonisolated`
+    // matches the project-wide rule (see CLAUDE.md, architectural note #1).
+    private nonisolated static let activity = Table("activity")
+    private nonisolated static let colID = SQLite.Expression<String>("id")
+    private nonisolated static let colTimestamp = SQLite.Expression<Double>("timestamp")
+    private nonisolated static let colKind = SQLite.Expression<String>("kind")
+    private nonisolated static let colDeviceName = SQLite.Expression<String?>("device_name")
+    private nonisolated static let colReason = SQLite.Expression<String?>("reason")
+    private nonisolated static let colLabel = SQLite.Expression<String?>("label")
 
     private func createSchemaIfNeeded() throws {
         try connection.run(Self.activity.create(ifNotExists: true) { t in
