@@ -39,7 +39,7 @@ let app = Target.target(
             "CODE_SIGN_STYLE": "Manual",
             "CODE_SIGN_IDENTITY": "-",
             "PRODUCT_NAME": "RuEnSync",
-            "MARKETING_VERSION": "0.1.0",
+            "MARKETING_VERSION": "1.0.0",
             "CURRENT_PROJECT_VERSION": "1",
         ]
     )
