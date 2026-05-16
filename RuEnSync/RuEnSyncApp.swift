@@ -44,6 +44,10 @@ struct RuEnSyncApp: App {
 ///    doesn't jitter on every layout change.
 /// 3. Background pill softens the colour and gives the letter pair a
 ///    container, so it reads as one symbol instead of two loose glyphs.
+/// 4. Filled pill = packets currently reaching at least one device. Hollow,
+///    desaturated pill = sync is broken (no device connected / busy /
+///    qmk-hid-host holding the lock). The dropdown carries the actual
+///    reason; the menubar just answers "is sync working right now?".
 private struct MenuLabel: View {
     let model: AppModel
 
@@ -52,12 +56,13 @@ private struct MenuLabel: View {
         // menubar tint and silently ignores `.foregroundStyle`. To actually
         // colour the EN/RU label we render the SwiftUI view into an NSImage
         // via ImageRenderer and mark it non-template, so AppKit treats it as
-        // a bitmap and keeps our colour. Re-renders on every layoutIndex
-        // change because the @Observable read in `renderedLabel` invalidates
-        // the body. Tiny cost (a few pixels of text) — fine on the main loop.
+        // a bitmap and keeps our colour. Re-renders on every layoutIndex /
+        // device-status change because the @Observable reads in
+        // `renderedLabel` invalidate the body. Tiny cost (a few pixels of
+        // text) — fine on the main loop.
         if let nsImage = renderedLabel {
             Image(nsImage: nsImage)
-                .accessibilityLabel(model.languageLabel)
+                .accessibilityLabel(accessibilityLabel)
         } else {
             Text(model.languageLabel)
         }
@@ -66,7 +71,7 @@ private struct MenuLabel: View {
     /// Hand-tuned colours, NOT system `.red`/`.blue`. See goal (1) on
     /// `MenuLabel`. Light/dark menubar both work because the pill sits on
     /// top of the menubar's blur, not on raw white/black.
-    private var foreground: Color {
+    private var baseColor: Color {
         switch model.layoutIndex {
         case .some(0): Color(red: 0.35, green: 0.60, blue: 0.98) // calm Apple-blue
         case .some: Color(red: 0.92, green: 0.42, blue: 0.42) // warm coral
@@ -74,8 +79,27 @@ private struct MenuLabel: View {
         }
     }
 
+    /// Online: full-weight base colour. Offline: same hue but desaturated to
+    /// half-alpha so EN/RU still hints at the current macOS layout while
+    /// reading as "muted / not active".
+    private var foreground: Color {
+        model.isAnyDeviceConnected ? baseColor : baseColor.opacity(0.5)
+    }
+
+    /// Filled background when sync is reaching a device. `.clear` when
+    /// offline — combined with the stroke this flips the pill from
+    /// filled-tag to outlined-tag without changing its footprint.
     private var background: Color {
-        foreground.opacity(0.18)
+        model.isAnyDeviceConnected ? baseColor.opacity(0.18) : .clear
+    }
+
+    /// Invisible when online; outlined in the muted base hue when offline.
+    private var strokeColor: Color {
+        model.isAnyDeviceConnected ? .clear : baseColor.opacity(0.55)
+    }
+
+    private var accessibilityLabel: String {
+        model.isAnyDeviceConnected ? model.languageLabel : "\(model.languageLabel), no device connected"
     }
 
     @MainActor
@@ -90,6 +114,10 @@ private struct MenuLabel: View {
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(background)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(strokeColor, lineWidth: 1)
             )
         let renderer = ImageRenderer(content: view)
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
