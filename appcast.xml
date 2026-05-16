@@ -1,0 +1,15 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>RuEnSync</title>
+        <item>
+            <title>1.0</title>
+            <pubDate>Sat, 16 May 2026 15:18:59 +0000</pubDate>
+            <link>https://github.com/alexey1312/ruen-sync-mac</link>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/alexey1312/ruen-sync-mac/releases/download/v1.1.0/RuEnSync.dmg" length="1525137" type="application/octet-stream" sparkle:edSignature="/oOGjS6PNyC2+aWSmX7kBCrh/+em14PhHQZUbNtXwQkqSpG2ljsfFGH300hvhHfKjQ6Hu9s8CqurhMq7z3wJCQ=="/>
+        </item>
+    </channel>
+</rss>
