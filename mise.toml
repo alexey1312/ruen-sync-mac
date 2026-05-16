@@ -99,6 +99,10 @@ hk check --all 2>&1 | grep -E '^(✔|✗|hk )'
 description = "Clean build artifacts and generated project"
 run = "tuist clean && rm -rf build .build *.xcodeproj *.xcworkspace"
 
+[tasks.icon]
+description = "(Re)generate AppIcon.appiconset"
+run = "bash Scripts/make-icon.sh"
+
 [tasks.notarize]
 description = "Sign + notarize the built .app (requires DEV_ID_APP / NOTARY_PROFILE env)"
 run = "bash Scripts/notarize.sh"

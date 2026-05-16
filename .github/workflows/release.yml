@@ -1,0 +1,171 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  MISE_GITHUB_GITHUB_ATTESTATIONS: false
+
+jobs:
+  release:
+    name: Build, sign & publish
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: "/Applications/Xcode_26.2.app/Contents/Developer"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: jdx/mise-action@v4
+        with:
+          experimental: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${REF_NAME#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building version ${VERSION}"
+
+      - name: Generate Xcode project
+        run: mise run generate
+
+      - name: Build Release
+        run: mise run build:release
+
+      # ----------------------------------------------------------------------
+      # Codesign + notarize — only if secrets are present. Otherwise we ship
+      # an ad-hoc signed .app (works locally; first-launch Gatekeeper prompt).
+      # ----------------------------------------------------------------------
+      - name: Import Developer ID certificate
+        if: ${{ env.HAS_SIGNING == 'true' }}
+        env:
+          HAS_SIGNING: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' && 'true' || 'false' }}
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Sign + notarize + DMG
+        if: ${{ env.HAS_SIGNING == 'true' }}
+        env:
+          HAS_SIGNING: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' && 'true' || 'false' }}
+          DEV_ID_APP: ${{ secrets.DEV_ID_APP }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: |
+          # Pre-store notarytool credentials so notarize.sh's keychain-profile
+          # lookup finds them.
+          xcrun notarytool store-credentials NOTARY \
+            --apple-id "$APPLE_ID" \
+            --team-id "$TEAM_ID" \
+            --password "$APP_PASSWORD"
+          export NOTARY_PROFILE=NOTARY
+          bash Scripts/notarize.sh
+
+      # ----------------------------------------------------------------------
+      # Unsigned fallback path — bundles the ad-hoc-signed .app into a DMG.
+      # ----------------------------------------------------------------------
+      - name: Package DMG (unsigned fallback)
+        if: ${{ env.HAS_SIGNING != 'true' }}
+        env:
+          HAS_SIGNING: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' && 'true' || 'false' }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          APP_PATH="$(find ~/Library/Developer/Xcode/DerivedData -name 'RuEnSync.app' -path '*/Release/*' -type d | head -1)"
+          mkdir -p build/dist
+          hdiutil create -volname "RuEnSync" -srcfolder "$APP_PATH" -ov -format UDZO "build/dist/RuEnSync.dmg"
+          echo "Built unsigned DMG (no signing secrets configured)"
+
+      - name: Compute DMG SHA256
+        id: sha
+        run: |
+          DMG_SHA="$(shasum -a 256 build/dist/RuEnSync.dmg | awk '{print $1}')"
+          echo "dmg_sha=${DMG_SHA}" >> "$GITHUB_OUTPUT"
+          echo "DMG SHA256: ${DMG_SHA}"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RuEnSync-${{ steps.version.outputs.version }}
+          path: build/dist/RuEnSync.dmg
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/dist/RuEnSync.dmg
+          generate_release_notes: true
+          body: |
+            Built from tag ${{ github.ref_name }}.
+
+            SHA256: `${{ steps.sha.outputs.dmg_sha }}`
+
+            ## Install
+
+            ```bash
+            brew install --cask alexey1312/tap/ruensync
+            ```
+
+            Or download the DMG below and drag RuEnSync.app to ~/Applications.
+
+      # ----------------------------------------------------------------------
+      # Bump the Cask formula in alexey1312/homebrew-tap.
+      # Requires HOMEBREW_TAP_TOKEN (PAT with `repo` scope on the tap repo).
+      # If absent, this step is skipped.
+      # ----------------------------------------------------------------------
+      - name: Update Homebrew cask
+        if: ${{ env.HAS_TAP_TOKEN == 'true' }}
+        env:
+          HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' && 'true' || 'false' }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          DMG_SHA: ${{ steps.sha.outputs.dmg_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/alexey1312/homebrew-tap.git" tap
+          mkdir -p tap/Casks
+          cat > tap/Casks/ruensync.rb <<RUBY
+          cask "ruensync" do
+            version "${VERSION}"
+            sha256 "${DMG_SHA}"
+
+            url "https://github.com/${REPO}/releases/download/v#{version}/RuEnSync.dmg"
+            name "RuEnSync"
+            desc "Menubar app that keeps a QMK keyboard's cur_lang in sync with the macOS input source"
+            homepage "https://github.com/${REPO}"
+
+            app "RuEnSync.app"
+
+            zap trash: [
+              "~/.config/RuEnSync",
+              "~/Library/Application Scripts/com.alexey1312.ruensync",
+              "~/Library/Containers/com.alexey1312.ruensync",
+            ]
+          end
+          RUBY
+          cd tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/ruensync.rb
+          git commit -m "ruensync: bump to ${VERSION}"
+          git push

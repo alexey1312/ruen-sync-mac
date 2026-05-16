@@ -1,5 +1,7 @@
 # RuEnSync
 
+[![CI](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/ci.yml/badge.svg)](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/ci.yml)
+[![Release](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/release.yml/badge.svg)](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/release.yml)
 [![macOS](https://img.shields.io/badge/macOS-26%2B-blue)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-orange)](https://swift.org)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
@@ -10,11 +12,22 @@ written for the [split_keyboard_layouts](https://github.com/alexey1312/split_key
 Corne firmware — but works with any QMK board that listens for `[0xAC, idx]` on its
 Raw HID interface.
 
-> **Status:** working dev build. Universal binary, ad-hoc signed. Notarized release
-> coming once Developer ID credentials are wired up.
-
 <!-- screenshot placeholder: drop a PNG of the menubar dropdown here once ready -->
 <!-- ![Menubar screenshot](docs/screenshot.png) -->
+
+## Install
+
+### Homebrew (recommended once a release is tagged)
+
+```bash
+brew install --cask alexey1312/tap/ruensync
+```
+
+### Manual
+
+Grab `RuEnSync.dmg` from the [latest release](https://github.com/alexey1312/ruen-sync-mac/releases/latest),
+open it, drag the app to `~/Applications`, launch once. It registers itself as a Login
+Item via `SMAppService` — no `launchctl` dance.
 
 ## Why a native rewrite
 
@@ -29,50 +42,25 @@ RuEnSync addresses all three:
 
 - Subscribes to `kTISNotifySelectedKeyboardInputSourceChanged` — **event-driven**, no
   polling, CPU ≈ 0.
-- Registers itself via `SMAppService` — appears in *System Settings → General → Login
-  Items* as a regular toggle.
-- Will ship signed & notarized so first run is a normal app launch.
+- Registers via `SMAppService` — visible in *System Settings → General → Login Items*.
+- Ships signed & notarized — first run is a normal app launch, no security prompt.
 
 It speaks the **same wire protocol** as `qmk-hid-host` (`[0x00, 0xAC, idx, 0×30]` —
 33-byte HID Output Report). Existing firmware needs no changes.
 
-## Why
-
-The Rust `qmk-hid-host` daemon does its job, but:
-
-- It polls the input-source API every 100 ms.
-- It needs a `launchctl bootstrap` LaunchAgent dance to start at login.
-- The downloaded binary trips Gatekeeper the first time you run it.
-
-RuEnSync replaces it with a tiny SwiftUI menubar app that:
-
-- Subscribes to `kTISNotifySelectedKeyboardInputSourceChanged` — **event-driven**, no polling.
-- Registers itself via `SMAppService` — appears in *System Settings → General → Login Items*
-  as a regular toggle.
-- Will ship signed & notarized so first run is a normal app launch (no security prompt).
-
-It speaks the same wire protocol (`[0xAC, idx]` at byte offsets 1–2 of a 33-byte HID report)
-as `qmk-hid-host`, so **the firmware needs no changes**.
-
-## Install (dev build)
+## Build from source
 
 ```bash
-# 1. clone and build
 git clone https://github.com/alexey1312/ruen-sync-mac
 cd ruen-sync-mac
 mise install              # installs tuist, swiftformat, swiftlint, …
-mise run generate         # generates RuEnSync.xcworkspace
-mise run build:release    # builds RuEnSync.app
+mise run generate         # regenerates RuEnSync.xcworkspace
+mise run build:release    # builds the universal .app
 
-# 2. install into ~/Applications (tuist puts the app under system DerivedData)
 APP="$(find ~/Library/Developer/Xcode/DerivedData -name 'RuEnSync.app' -path '*/Release/*' -type d | head -1)"
 cp -R "${APP}" ~/Applications/
-
-# 3. first launch — registers as login item automatically
 open ~/Applications/RuEnSync.app
 ```
-
-A signed/notarized DMG release will be available once codesign credentials are wired up.
 
 ## Configuration
 
@@ -182,6 +170,47 @@ mise run clean            # nuke Derived + generated proj
 ```
 
 Open the generated `RuEnSync.xcworkspace` in Xcode for IDE work.
+
+## Releasing
+
+The repo ships two GitHub Actions workflows:
+
+- **`ci.yml`** — runs on every push/PR: `mise run format-check`, `lint`, `test`, debug
+  build. Uses `macos-26` runners and Xcode 26.
+- **`release.yml`** — triggers on `v*` tags. Builds Release, optionally signs +
+  notarizes, packages a DMG, creates a GitHub Release, and bumps the
+  [Homebrew cask](https://github.com/alexey1312/homebrew-tap/blob/main/Casks/ruensync.rb).
+
+Tag a release:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+### Signing & notarization secrets (optional)
+
+Without these, the workflow ships an ad-hoc-signed DMG (works, but Gatekeeper
+prompts on first launch). With them, the DMG is fully notarized and stapled.
+
+| Secret | Where to get |
+| --- | --- |
+| `BUILD_CERTIFICATE_BASE64` | `base64 -i DeveloperIDApplication.p12` (your exported Developer ID cert) |
+| `P12_PASSWORD` | The password you set when exporting the .p12 |
+| `KEYCHAIN_PASSWORD` | Any random string — used to lock/unlock the temporary CI keychain |
+| `DEV_ID_APP` | `Developer ID Application: Your Name (TEAMID)` (the exact common name) |
+| `APPLE_ID` | Your Apple ID email |
+| `APP_PASSWORD` | App-specific password from appleid.apple.com → Security → App-Specific Passwords |
+| `TEAM_ID` | 10-character team identifier (in your developer account) |
+
+### Homebrew cask publish (optional)
+
+| Secret | Purpose |
+| --- | --- |
+| `HOMEBREW_TAP_TOKEN` | PAT with `repo` scope on `alexey1312/homebrew-tap`. Lets the workflow push a commit bumping `Casks/ruensync.rb`. |
+
+If unset, the cask isn't bumped — release still works, just not auto-installable
+via `brew install --cask`.
 
 ## License
 
