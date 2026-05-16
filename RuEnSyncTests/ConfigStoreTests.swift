@@ -39,6 +39,29 @@ struct ConfigDecodingTests {
         #expect(config.devices[0].usagePage == 0xFF60)
         #expect(config.devices[0].usage == 0x61)
     }
+
+    @Test("decodes multiple devices in order")
+    func decodesMultipleDevices() throws {
+        let json = Data("""
+        {
+          "devices": [
+            { "productId": "0x0001", "name": "Corne" },
+            { "productId": "0x0002", "name": "Lily58" }
+          ],
+          "layouts": ["ABC", "Russian"]
+        }
+        """.utf8)
+
+        let config = try JSONDecoder().decode(Config.self, from: json)
+        #expect(config.devices.count == 2)
+        #expect(config.devices[0].name == "Corne")
+        #expect(config.devices[1].name == "Lily58")
+
+        let resolved = config.devices.compactMap(ResolvedDevice.init)
+        #expect(resolved.count == 2)
+        #expect(resolved[0].productId == 0x0001)
+        #expect(resolved[1].productId == 0x0002)
+    }
 }
 
 struct ResolvedDeviceTests {

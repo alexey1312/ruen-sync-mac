@@ -52,6 +52,22 @@ RuEnSync addresses all three:
 It speaks the **same wire protocol** as `qmk-hid-host` (`[0x00, 0xAC, idx, 0×30]` —
 33-byte HID Output Report). Existing firmware needs no changes.
 
+### Auto-pushed Mac flag
+
+In addition to layout sync, RuEnSync sends a one-shot `_OS_TYPE` packet
+(`[0x00, 0xB0, 'M', 'A', 'C', 0x00, …]`) immediately on every connect. Firmware
+that handles this data type (see the patch in
+[`split_keyboard_layouts`](https://github.com/alexey1312/split_keyboard_layouts))
+can auto-flip into its macOS-Russian variant — no more "after every reflash I
+have to remember to hit the Mac toggle on the keyboard before the EEPROM
+remembers it".
+
+Payload format is borrowed from
+[`nomis/qmk-hid-identify`](https://github.com/nomis/qmk-hid-identify) (`MAC\0`
+ASCII magic), so firmware written for that daemon works with RuEnSync too.
+Firmware that doesn't know `0xB0` ignores the unknown data type — fully
+backward-compatible.
+
 ## Build from source
 
 ```bash
@@ -78,6 +94,8 @@ defaults:
 }
 ```
 
+- `devices` — one or more keyboards to sync. RuEnSync opens an HID link for each;
+  layout changes and the Mac flag are pushed to all of them in parallel.
 - `productId` — must match your keyboard's `vial.json` / QMK USB ID.
 - `layouts` — ordered list of `TISPropertyInputSourceID` suffixes. The index of the active
   layout in this array is the byte sent to the keyboard. Firmware contract: `0 → EN`,
@@ -142,12 +160,17 @@ Source layout:
 `qmk-hid-host` LaunchAgent **and** RuEnSync at the same time, the second one to open the
 device gets `kIOReturnExclusiveAccess` and stays disconnected.
 
+RuEnSync surfaces this in the menubar as **"Device busy (qmk-hid-host running?)"**.
+Once you've killed the conflicting daemon, hit **Reconnect** in the menu — no need
+to restart the app.
+
 → **Pick one.** If you used `qmk-hid-host` before, run `cd tools/qmk-hid-host && ./uninstall.sh`
 in the firmware repo first.
 
 ## Troubleshooting
 
-Logs go to the unified log:
+Click **Open log…** in the menubar dropdown — it opens Terminal with the right
+predicate already typed. Or run it manually:
 
 ```bash
 log stream --predicate 'subsystem == "com.alexey1312.ruensync"' --info

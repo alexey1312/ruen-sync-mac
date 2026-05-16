@@ -5,12 +5,10 @@ import SwiftUI
 @main
 struct RuEnSyncApp: App {
     @State private var model: AppModel
-    @State private var config: Config
 
     init() {
         let config = ConfigStore.loadOrSeedDefaults()
         let model = AppModel(config: config)
-        _config = State(initialValue: config)
         _model = State(initialValue: model)
         // Register as a login item on first launch. Idempotent — SMAppService
         // is safe to call repeatedly.
@@ -61,23 +59,31 @@ private struct MenuContent: View {
 
         Divider()
 
-        // Connection status row — name of the device + state.
-        Label(model.connectionDescription, systemImage: connectionSymbol)
+        if model.deviceStatuses.isEmpty {
+            Label("No device configured", systemImage: "keyboard.badge.ellipsis")
+        } else {
+            ForEach(model.deviceStatuses) { status in
+                DeviceRow(status: status)
+            }
+        }
 
         if model.connection == .connected {
             Text("Layout: \(model.languageLabel)")
         }
 
-        if let pid = model.productIdLabel {
-            Text("Product ID: \(pid)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-
         Divider()
+
+        Button("Reconnect") {
+            model.reconnectAll()
+        }
+        .keyboardShortcut("r")
 
         Button("Open config…") {
             NSWorkspace.shared.activateFileViewerSelecting([ConfigStore.configURL])
+        }
+
+        Button("Open log…") {
+            openLogStream()
         }
 
         Button("Quit RuEnSync") {
@@ -86,12 +92,52 @@ private struct MenuContent: View {
         .keyboardShortcut("q")
     }
 
-    /// SF Symbol for the connection-status row. `keyboard.fill` when we're
-    /// talking to the device, `keyboard.badge.ellipsis` while waiting.
-    private var connectionSymbol: String {
-        switch model.connection {
+    /// Launches Terminal with a `log stream` predicate scoped to our subsystem.
+    /// Implementation note: we write a temporary `.command` file and let
+    /// `NSWorkspace.open` route it to Terminal via LaunchServices. This avoids
+    /// the AppleScript path, which under the hardened runtime would require an
+    /// `apple-events` entitlement (and a first-launch TCC prompt).
+    private func openLogStream() {
+        let tempDir = FileManager.default.temporaryDirectory
+        let scriptURL = tempDir.appendingPathComponent("RuEnSync-log.command")
+        let content = """
+        #!/bin/bash
+        clear
+        echo "RuEnSync — live log (Ctrl-C to stop)"
+        echo
+        exec log stream --predicate 'subsystem == "\(Log.subsystem)"' --info
+        """
+        do {
+            try content.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+            NSWorkspace.shared.open(scriptURL)
+        } catch {
+            Log.app.error("openLogStream failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
+
+// MARK: - Device row
+
+private struct DeviceRow: View {
+    let status: AppModel.DeviceStatus
+
+    var body: some View {
+        Label(status.summary, systemImage: symbol)
+        Text("Product ID: \(status.productIdLabel)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    private var symbol: String {
+        switch status.state {
         case .connected: "keyboard.fill"
-        case .offline: "keyboard.badge.ellipsis"
+        case .offline:
+            switch status.offlineReason {
+            case .exclusiveAccess: "exclamationmark.triangle.fill"
+            case .openFailed, .managerOpenFailed: "xmark.octagon"
+            case .awaitingDevice, .none: "keyboard.badge.ellipsis"
+            }
         }
     }
 }

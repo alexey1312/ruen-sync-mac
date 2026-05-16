@@ -39,4 +39,41 @@ struct HIDPacketTests {
             #expect(byte == 0)
         }
     }
+
+    // MARK: - _OS_TYPE packet
+
+    @Test("OS report is also 33 bytes")
+    func osReportLength() {
+        let report = HIDLink.buildOSReport()
+        #expect(report.count == 33)
+    }
+
+    @Test("OS report byte 0 is the report ID (0x00)")
+    func osReportPrefix() {
+        let report = HIDLink.buildOSReport()
+        #expect(report[0] == 0x00)
+    }
+
+    @Test("OS report byte 1 is _OS_TYPE data type (0xB0)")
+    func osDataType() {
+        let report = HIDLink.buildOSReport()
+        #expect(report[1] == 0xB0)
+    }
+
+    @Test("OS report carries MAC\\0 magic at offsets 2..5")
+    func osMagic() {
+        let report = HIDLink.buildOSReport()
+        #expect(report[2] == 0x4D) // 'M'
+        #expect(report[3] == 0x41) // 'A'
+        #expect(report[4] == 0x43) // 'C'
+        #expect(report[5] == 0x00) // NUL — matches nomis/qmk-hid-identify wire format
+    }
+
+    @Test("OS report — bytes after the magic are zero-padded")
+    func osZeroPadded() {
+        let report = HIDLink.buildOSReport()
+        for byte in report[6...] {
+            #expect(byte == 0)
+        }
+    }
 }
