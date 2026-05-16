@@ -1,4 +1,8 @@
-# RuEnSync
+<p align="center">
+  <img src="RuEnSync/Resources/Assets.xcassets/AppIcon.appiconset/icon_256.png" alt="RuEnSync app icon" width="160" height="160" />
+</p>
+
+<h1 align="center">RuEnSync</h1>
 
 [![CI](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/ci.yml/badge.svg)](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/ci.yml)
 [![Release](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/release.yml/badge.svg)](https://github.com/alexey1312/ruen-sync-mac/actions/workflows/release.yml)
