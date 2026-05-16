@@ -21,7 +21,7 @@ let sparkleFeedURL = "https://alexey1312.github.io/ruen-sync-mac/appcast.xml"
 /// DMG. Generated via `Sparkle/bin/generate_keys` once; rotated only if the
 /// private key leaks (would require shipping a new release with a new pubkey,
 /// older installs stop receiving updates until the user reinstalls).
-let sparklePublicEDKey = "REPLACE_ME_WITH_GENERATED_PUBLIC_ED_KEY"
+let sparklePublicEDKey = "9mG/dHCyFpSwLUIcen0RyO1WJgczqxNrZ3/YUBCuZ+Q="
 
 let app = Target.target(
     name: "RuEnSync",
