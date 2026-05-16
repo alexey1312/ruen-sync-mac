@@ -51,13 +51,15 @@ RuEnSync addresses all three:
 - **In-app auto-updates** via [Sparkle](https://sparkle-project.org) — silent
   daily check, EdDSA-verified DMG, install on quit. No manual re-downloading.
 
-It speaks the **same wire protocol** as `qmk-hid-host` (`[0x00, 0xAC, idx, 0×30]` —
-33-byte HID Output Report). Existing firmware needs no changes.
+It speaks the **same wire protocol** as `qmk-hid-host` — a 32-byte HID Output
+Report of `[0xAC, idx, 0×30]` straight into the keyboard's Raw HID Interrupt
+OUT endpoint (`RAW_EPSIZE`). Existing firmware needs no changes.
 
 ### Auto-pushed Mac flag
 
 In addition to layout sync, RuEnSync sends a one-shot `_OS_TYPE` packet
-(`[0x00, 0xB0, 'M', 'A', 'C', 0x00, …]`) immediately on every connect. Firmware
+(`[0xB0, 'M', 'A', 'C', 0x00, …]` — same 32-byte wire format) immediately on
+every connect. Firmware
 that handles this data type (see the patch in
 [`split_keyboard_layouts`](https://github.com/alexey1312/split_keyboard_layouts))
 can auto-flip into its macOS-Russian variant — no more "after every reflash I
@@ -136,8 +138,9 @@ defaults read com.apple.HIToolbox AppleSelectedInputSources
 ┌────────────▼─────────────┐
 │  HIDLink (IOHIDManager)  │   ← matching dict: pid + usage + usagePage
 └────────────┬─────────────┘
-             │  IOHIDDeviceSetReport: 33 bytes = [0x00, 0xAC, idx, 0×30]
-             ▼
+             │  IOHIDDeviceSetReport: 32 bytes = [0xAC, idx, 0×30]
+             ▼   (no leading report-ID byte — IOKit sends buffer as-is,
+             │    unlike hidapi which strips a 0x00 prefix)
 ┌──────────────────────────┐
 │  crkbd raw_hid_receive_kb │   ← unmodified Vial-QMK firmware
 └──────────────────────────┘

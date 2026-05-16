@@ -34,6 +34,15 @@ final class AppModel {
     private var hidLinks: [HIDLink] = []
     private let layoutWatcher: LayoutWatcher
 
+    /// Background task that retries `reconnectAll()` while any link is offline
+    /// for a recoverable reason. `nil` when no retry is pending. Cancelled the
+    /// moment any link transitions back to `.connected`.
+    private var reconnectTask: Task<Void, Never>?
+    /// Consecutive retry attempts since the last successful connect. Reset on
+    /// `.connected`. Passed to `retryDelay(attempt:)` so the policy can apply
+    /// backoff if it wants.
+    private var reconnectAttempt: Int = 0
+
     init(config: Config) {
         self.config = config
         layoutWatcher = LayoutWatcher(layouts: config.layouts)
@@ -67,6 +76,57 @@ final class AppModel {
         }
         hidLinks = []
         buildAndStartLinks()
+    }
+
+    /// Spawns the background task that keeps retrying `reconnectAll()` until
+    /// any link reports `.connected`. Idempotent: a no-op if a task is already
+    /// running. Cancellation is the only termination path — the closure inside
+    /// the task watches `reconnectAttempt` (mutated on the main actor) and
+    /// `Task.isCancelled` to know when to stop.
+    private func scheduleReconnectTask() {
+        if reconnectTask != nil { return }
+        reconnectTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let attempt = await self?.reconnectAttempt else { return }
+                let delay = Self.retryDelay(attempt: attempt)
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return // cancelled mid-sleep
+                }
+                guard !Task.isCancelled else { return }
+                await self?.bumpReconnectAttemptAndRetry()
+            }
+        }
+    }
+
+    private func cancelReconnectTask() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+    }
+
+    /// Main-actor-isolated helper called from inside `reconnectTask`. Increments
+    /// the attempt counter and triggers a full link rebuild. The counter is
+    /// only reset on a successful `.connected` transition.
+    private func bumpReconnectAttemptAndRetry() {
+        reconnectAttempt += 1
+        reconnectAll()
+    }
+
+    /// Computes the delay before the **next** reconnect attempt.
+    ///
+    /// Exponential backoff: 0.5s · 2^attempt, capped at 30s. Schedule by
+    /// attempt: 0.5s, 1s, 2s, 4s, 8s, 16s, then 30s forever. Quick on the
+    /// common transient (Vial open for a moment, USB burst), gentle once
+    /// stuck (Vial held open through an editing session). Counter resets on
+    /// `.connected`, so a recovered outage never drags the next one's first
+    /// retry to the cap.
+    private static func retryDelay(attempt: Int) -> Duration {
+        let baseMS = 500
+        let capMS = 30000
+        let exponent = min(max(attempt, 0), 10)
+        let delayMS = baseMS * (1 << exponent)
+        return .milliseconds(min(delayMS, capMS))
     }
 
     private func buildAndStartLinks() {
@@ -115,10 +175,18 @@ final class AppModel {
         switch (previousState, state) {
         case (.offline, .connected):
             activity.record(.deviceConnected(name: name))
+            cancelReconnectTask()
+            reconnectAttempt = 0
         case let (.connected, .offline(reason)):
             activity.record(.deviceDisconnected(name: name, reason: reason.menuLabel))
+            if reason.isRecoverable {
+                scheduleReconnectTask()
+            }
         case let (.offline(prev), .offline(now)) where prev != now:
             activity.record(.deviceOfflineReasonChanged(name: name, reason: now.menuLabel))
+            if now.isRecoverable, reconnectTask == nil {
+                scheduleReconnectTask()
+            }
         default:
             break
         }

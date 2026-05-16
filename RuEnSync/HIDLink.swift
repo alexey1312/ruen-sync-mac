@@ -90,8 +90,14 @@ final class HIDLink {
     /// macOS-only, so this is the only magic we ever send.
     nonisolated static let osMagicMac: [UInt8] = [0x4D, 0x41, 0x43, 0x00]
 
-    /// QMK `RAW_EPSIZE` = 32 bytes payload, plus 1 byte report ID prefix = 33.
-    nonisolated static let reportSize: Int = 33
+    /// QMK Raw HID Interrupt OUT endpoint expects exactly `RAW_EPSIZE` (32)
+    /// bytes. Unlike hidapi (which strips a leading report-ID byte before
+    /// writing), `IOHIDDeviceSetReport` sends the buffer as-is per Apple's
+    /// docs. With reportID = 0 (unnumbered report), the buffer must therefore
+    /// start directly with the data — no leading `0x00`. A 33-byte buffer
+    /// would either be split into 32 + 1 packets or truncated by USB, and
+    /// the firmware would parse `data[0] = 0x00` and silently drop the packet.
+    nonisolated static let reportSize: Int = 32
 
     // MARK: Init
 
@@ -287,22 +293,22 @@ final class HIDLink {
 extension HIDLink {
     /// Builds the wire-format layout report. Pure function, exposed for unit
     /// tests and identical to what `send(layoutIndex:)` writes to the device.
+    /// Layout: `[0xAC, idx, 0, 0, …]` — 32 bytes total. Firmware checks
+    /// `data[0] == 0xAC`, so byte 0 is the data-type, not a report-ID prefix.
     nonisolated static func buildReport(layoutIndex: UInt8) -> [UInt8] {
         var report = [UInt8](repeating: 0, count: reportSize)
-        report[0] = 0x00
-        report[1] = layoutDataType
-        report[2] = layoutIndex
+        report[0] = layoutDataType
+        report[1] = layoutIndex
         return report
     }
 
-    /// Builds the wire-format `_OS_TYPE` report. `[0x00, 0xB0, 'M', 'A', 'C',
-    /// 0x00, …]`. Pure function, exposed for unit tests.
+    /// Builds the wire-format `_OS_TYPE` report. `[0xB0, 'M', 'A', 'C',
+    /// 0x00, …]` — 32 bytes total. Pure function, exposed for unit tests.
     nonisolated static func buildOSReport() -> [UInt8] {
         var report = [UInt8](repeating: 0, count: reportSize)
-        report[0] = 0x00
-        report[1] = osTypeDataType
+        report[0] = osTypeDataType
         for (offset, byte) in osMagicMac.enumerated() {
-            report[2 + offset] = byte
+            report[1 + offset] = byte
         }
         return report
     }
@@ -323,6 +329,20 @@ extension HIDLink.OfflineReason {
             "Open failed (\(String(format: "0x%08X", code)))"
         case let .managerOpenFailed(code):
             "HID manager open failed (\(String(format: "0x%08X", code)))"
+        }
+    }
+
+    /// True if the offline reason can plausibly clear itself on a re-open
+    /// attempt — e.g. another app (Vial) released its exclusive lock, the
+    /// kernel ungated a transient error. `awaitingDevice` is excluded because
+    /// IOHIDManager re-fires `handleDeviceMatched` automatically on replug,
+    /// so retrying ourselves would just thrash without changing anything.
+    var isRecoverable: Bool {
+        switch self {
+        case .awaitingDevice:
+            false
+        case .exclusiveAccess, .openFailed, .managerOpenFailed:
+            true
         }
     }
 }

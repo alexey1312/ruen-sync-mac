@@ -35,6 +35,12 @@ let app = Target.target(
         "CFBundleDisplayName": "RuEnSync",
         "LSApplicationCategoryType": "public.app-category.utilities",
         "NSHumanReadableCopyright": "Copyright © 2026 Aleksei Kakoulin. MIT License.",
+        // Resolve to MARKETING_VERSION / CURRENT_PROJECT_VERSION from build
+        // settings at compile time. Tuist's .extendingDefault otherwise bakes
+        // a literal "1.0" / "1" into Info.plist, which silently wins over
+        // build settings and freezes Sparkle's view of the app version.
+        "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+        "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
         // Sparkle auto-update keys. SUFeedURL + SUPublicEDKey are the only
         // hard requirements; the rest are user-overridable defaults that
         // Sparkle persists into NSUserDefaults after first launch.
