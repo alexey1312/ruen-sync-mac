@@ -43,9 +43,9 @@ private struct MenuLabel: View {
     /// shade for dark/light menubar, so plain `.blue`/`.red` are correct here.
     private var color: Color {
         switch model.layoutIndex {
-        case .some(0): return .blue
-        case .some: return .red
-        case .none: return .secondary
+        case .some(0): .blue
+        case .some: .red
+        case .none: .secondary
         }
     }
 }
@@ -90,8 +90,8 @@ private struct MenuContent: View {
     /// talking to the device, `keyboard.badge.ellipsis` while waiting.
     private var connectionSymbol: String {
         switch model.connection {
-        case .connected: return "keyboard.fill"
-        case .offline: return "keyboard.badge.ellipsis"
+        case .connected: "keyboard.fill"
+        case .offline: "keyboard.badge.ellipsis"
         }
     }
 }

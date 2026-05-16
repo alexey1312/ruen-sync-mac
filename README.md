@@ -42,7 +42,7 @@ RuEnSync addresses all three:
 
 - Subscribes to `kTISNotifySelectedKeyboardInputSourceChanged` — **event-driven**, no
   polling, CPU ≈ 0.
-- Registers via `SMAppService` — visible in *System Settings → General → Login Items*.
+- Registers via `SMAppService` — visible in _System Settings → General → Login Items_.
 - Ships signed & notarized — first run is a normal app launch, no security prompt.
 
 It speaks the **same wire protocol** as `qmk-hid-host` (`[0x00, 0xAC, idx, 0×30]` —
@@ -96,41 +96,41 @@ defaults read com.apple.HIToolbox AppleSelectedInputSources
 ## Architecture
 
 ```
-   ┌──────────────────────────┐
-   │  macOS Input Source      │   ← Cmd+Space, Punto, mouse, menubar
-   └────────────┬─────────────┘
-                │  kTISNotifySelectedKeyboardInputSourceChanged
-                ▼
-   ┌──────────────────────────┐
-   │  LayoutWatcher (Swift)   │   ← reads TISCopyCurrentKeyboardLayoutInputSource()
-   └────────────┬─────────────┘
-                │
-   ┌────────────▼─────────────┐
-   │  AppModel (@MainActor)   │   ← menubar state (EN / RU / —)
-   └────────────┬─────────────┘
-                │
-   ┌────────────▼─────────────┐
-   │  HIDLink (IOHIDManager)  │   ← matching dict: pid + usage + usagePage
-   └────────────┬─────────────┘
-                │  IOHIDDeviceSetReport: 33 bytes = [0x00, 0xAC, idx, 0×30]
-                ▼
-   ┌──────────────────────────┐
-   │  crkbd raw_hid_receive_kb │   ← unmodified Vial-QMK firmware
-   └──────────────────────────┘
+┌──────────────────────────┐
+│  macOS Input Source      │   ← Cmd+Space, Punto, mouse, menubar
+└────────────┬─────────────┘
+             │  kTISNotifySelectedKeyboardInputSourceChanged
+             ▼
+┌──────────────────────────┐
+│  LayoutWatcher (Swift)   │   ← reads TISCopyCurrentKeyboardLayoutInputSource()
+└────────────┬─────────────┘
+             │
+┌────────────▼─────────────┐
+│  AppModel (@MainActor)   │   ← menubar state (EN / RU / —)
+└────────────┬─────────────┘
+             │
+┌────────────▼─────────────┐
+│  HIDLink (IOHIDManager)  │   ← matching dict: pid + usage + usagePage
+└────────────┬─────────────┘
+             │  IOHIDDeviceSetReport: 33 bytes = [0x00, 0xAC, idx, 0×30]
+             ▼
+┌──────────────────────────┐
+│  crkbd raw_hid_receive_kb │   ← unmodified Vial-QMK firmware
+└──────────────────────────┘
 ```
 
 Source layout:
 
-| File                              | Role                                                    |
-| --------------------------------- | ------------------------------------------------------- |
-| `RuEnSync/RuEnSyncApp.swift`      | SwiftUI `@main`, `MenuBarExtra` icon + menu             |
-| `RuEnSync/AppModel.swift`         | `@Observable` state, wires Watcher and Link             |
-| `RuEnSync/LayoutWatcher.swift`    | Carbon TIS + `DistributedNotificationCenter` subscriber |
-| `RuEnSync/HIDLink.swift`          | `IOHIDManager` matching, open/close, `SetReport`        |
-| `RuEnSync/ConfigStore.swift`      | Schema + load/seed-default                              |
-| `RuEnSync/LoginItem.swift`        | `SMAppService.mainApp` register/unregister              |
-| `RuEnSync/RuEnSync.entitlements`  | Empty: IOKit/Carbon work outside the sandbox            |
-| `Project.swift`                   | Tuist project description                               |
+| File                             | Role                                                    |
+| -------------------------------- | ------------------------------------------------------- |
+| `RuEnSync/RuEnSyncApp.swift`     | SwiftUI `@main`, `MenuBarExtra` icon + menu             |
+| `RuEnSync/AppModel.swift`        | `@Observable` state, wires Watcher and Link             |
+| `RuEnSync/LayoutWatcher.swift`   | Carbon TIS + `DistributedNotificationCenter` subscriber |
+| `RuEnSync/HIDLink.swift`         | `IOHIDManager` matching, open/close, `SetReport`        |
+| `RuEnSync/ConfigStore.swift`     | Schema + load/seed-default                              |
+| `RuEnSync/LoginItem.swift`       | `SMAppService.mainApp` register/unregister              |
+| `RuEnSync/RuEnSync.entitlements` | Empty: IOKit/Carbon work outside the sandbox            |
+| `Project.swift`                  | Tuist project description                               |
 
 ## Coexistence with qmk-hid-host
 
@@ -155,7 +155,7 @@ Common issues:
   Check `ioreg -p IOUSB | grep -i corne`.
 - **Wrong punctuation in Russian** — your `layouts` array doesn't contain the actual input
   source suffix. Run the `defaults read` command above to inspect.
-- **App doesn't start at login** — check *System Settings → General → Login Items* and
+- **App doesn't start at login** — check _System Settings → General → Login Items_ and
   toggle the entry. SMAppService sometimes needs an explicit user confirmation.
 
 ## Development
@@ -193,20 +193,20 @@ git push origin v0.2.0
 Without these, the workflow ships an ad-hoc-signed DMG (works, but Gatekeeper
 prompts on first launch). With them, the DMG is fully notarized and stapled.
 
-| Secret | Where to get |
-| --- | --- |
-| `BUILD_CERTIFICATE_BASE64` | `base64 -i DeveloperIDApplication.p12` (your exported Developer ID cert) |
-| `P12_PASSWORD` | The password you set when exporting the .p12 |
-| `KEYCHAIN_PASSWORD` | Any random string — used to lock/unlock the temporary CI keychain |
-| `DEV_ID_APP` | `Developer ID Application: Your Name (TEAMID)` (the exact common name) |
-| `APPLE_ID` | Your Apple ID email |
-| `APP_PASSWORD` | App-specific password from appleid.apple.com → Security → App-Specific Passwords |
-| `TEAM_ID` | 10-character team identifier (in your developer account) |
+| Secret                     | Where to get                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| `BUILD_CERTIFICATE_BASE64` | `base64 -i DeveloperIDApplication.p12` (your exported Developer ID cert)         |
+| `P12_PASSWORD`             | The password you set when exporting the .p12                                     |
+| `KEYCHAIN_PASSWORD`        | Any random string — used to lock/unlock the temporary CI keychain                |
+| `DEV_ID_APP`               | `Developer ID Application: Your Name (TEAMID)` (the exact common name)           |
+| `APPLE_ID`                 | Your Apple ID email                                                              |
+| `APP_PASSWORD`             | App-specific password from appleid.apple.com → Security → App-Specific Passwords |
+| `TEAM_ID`                  | 10-character team identifier (in your developer account)                         |
 
 ### Homebrew cask publish (optional)
 
-| Secret | Purpose |
-| --- | --- |
+| Secret               | Purpose                                                                                                          |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `HOMEBREW_TAP_TOKEN` | PAT with `repo` scope on `alexey1312/homebrew-tap`. Lets the workflow push a commit bumping `Casks/ruensync.rb`. |
 
 If unset, the cask isn't bumped — release still works, just not auto-installable

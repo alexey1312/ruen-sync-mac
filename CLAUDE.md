@@ -73,7 +73,7 @@ Scripts/
    `HIDLink.start()`.
 
 6. **`TISCopyCurrentKeyboardLayoutInputSource`, not `…KeyboardInputSource`.** The
-   former returns the keyboard *layout* (ABC, Russian, …). The latter can return
+   former returns the keyboard _layout_ (ABC, Russian, …). The latter can return
    override input sources like the emoji picker, which would confuse us. See
    `LayoutWatcher.readAndDispatch()`.
 
@@ -126,7 +126,7 @@ log stream --predicate 'subsystem == "com.alexey1312.ruensync"' --info
 ## Code style
 
 - Match the conventions in existing files. No need to add doc comments to obvious
-  things; **do** explain non-obvious *why* (e.g. the `MainActor.assumeIsolated`
+  things; **do** explain non-obvious _why_ (e.g. the `MainActor.assumeIsolated`
   callsite in `LayoutWatcher`).
 - 4-space indent, 120 column max (enforced by `.swiftformat`).
 - Tests use the new `Testing` framework (`@Suite`, `@Test`, `#expect`), not XCTest.

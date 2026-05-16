@@ -36,15 +36,15 @@ final class AppModel {
             let placeholder = ResolvedDevice(
                 .init(name: "none", productId: "0x0000", usagePage: nil, usage: nil)
             )!
-            self.device = nil
-            self.hidLink = HIDLink(device: placeholder)
-            self.layoutWatcher = LayoutWatcher(layouts: config.layouts)
+            device = nil
+            hidLink = HIDLink(device: placeholder)
+            layoutWatcher = LayoutWatcher(layouts: config.layouts)
             return
         }
 
-        self.device = resolved
-        self.hidLink = HIDLink(device: resolved)
-        self.layoutWatcher = LayoutWatcher(layouts: config.layouts)
+        device = resolved
+        hidLink = HIDLink(device: resolved)
+        layoutWatcher = LayoutWatcher(layouts: config.layouts)
     }
 
     /// Wires up the watchers. Call once after init, on the main actor.
@@ -53,21 +53,21 @@ final class AppModel {
             guard let self else { return }
             switch state {
             case .offline:
-                self.connection = .offline
+                connection = .offline
             case .connected:
-                self.connection = .connected
+                connection = .connected
                 // On reconnect, push the last known state so the firmware
                 // doesn't sit at whatever it had pre-disconnect.
-                if let idx = self.layoutWatcher.lastIndex {
-                    self.hidLink.send(layoutIndex: idx)
+                if let idx = layoutWatcher.lastIndex {
+                    hidLink.send(layoutIndex: idx)
                 }
             }
         }
 
         layoutWatcher.onLayoutChanged = { [weak self] idx in
             guard let self else { return }
-            self.layoutIndex = idx
-            self.hidLink.send(layoutIndex: idx)
+            layoutIndex = idx
+            hidLink.send(layoutIndex: idx)
         }
 
         hidLink.start()
@@ -81,9 +81,9 @@ extension AppModel {
     /// Short language label (`EN`, `RU`, or `—` when status is unknown).
     var languageLabel: String {
         switch layoutIndex {
-        case .some(0): return "EN"
-        case .some: return "RU"
-        case .none: return "—"
+        case .some(0): "EN"
+        case .some: "RU"
+        case .none: "—"
         }
     }
 
@@ -91,9 +91,9 @@ extension AppModel {
     var connectionDescription: String {
         switch connection {
         case .offline:
-            return device.map { "\($0.name) — not connected" } ?? "No device configured"
+            device.map { "\($0.name) — not connected" } ?? "No device configured"
         case .connected:
-            return device.map { "\($0.name) — connected" } ?? "Connected"
+            device.map { "\($0.name) — connected" } ?? "Connected"
         }
     }
 

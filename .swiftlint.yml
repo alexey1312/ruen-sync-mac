@@ -21,9 +21,10 @@ opt_in_rules:
   - empty_string
 
 line_length:
-  warning: 120
+  warning: 140
   error: 200
   ignores_comments: true
+  ignores_interpolated_strings: true
 
 identifier_name:
   min_length:

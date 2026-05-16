@@ -1,7 +1,6 @@
 @testable import RuEnSync
 import Testing
 
-@Suite("LayoutResolver")
 struct LayoutResolverTests {
     @Test("maps ABC to index 0")
     func mapsABC() {

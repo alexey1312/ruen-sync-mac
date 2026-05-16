@@ -1,7 +1,6 @@
 @testable import RuEnSync
 import Testing
 
-@Suite("HID wire format")
 struct HIDPacketTests {
     @Test("report is 33 bytes long")
     func reportLength() {

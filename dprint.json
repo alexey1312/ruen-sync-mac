@@ -12,6 +12,8 @@
   "excludes": [
     ".build",
     "build",
-    "**/*.generated.swift"
+    "Derived",
+    "**/*.generated.swift",
+    "**/Assets.xcassets/**"
   ]
 }

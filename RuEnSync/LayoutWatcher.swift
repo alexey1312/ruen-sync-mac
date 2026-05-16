@@ -66,9 +66,9 @@ final class LayoutWatcher {
         let id = Unmanaged<CFString>.fromOpaque(rawID).takeUnretainedValue() as String
 
         guard let idx = LayoutResolver.resolveIndex(inputSourceID: id, layouts: layouts) else {
-            Log.layout.warning(
-                "input source '\(id, privacy: .public)' not in configured layouts \(self.layouts, privacy: .public) — ignored"
-            )
+            let layoutList = layouts
+            Log.layout
+                .warning("input source '\(id, privacy: .public)' not in \(layoutList, privacy: .public) — ignored")
             return
         }
 

@@ -47,7 +47,7 @@ final class HIDLink {
 
     init(device: ResolvedDevice) {
         self.device = device
-        self.manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
     }
 
     // MARK: Public API
@@ -84,11 +84,16 @@ final class HIDLink {
 
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         if result != kIOReturnSuccess {
-            Log.hid.error("IOHIDManagerOpen failed: \(String(format: "0x%08X", result), privacy: .public)")
+            let code = String(format: "0x%08X", result)
+            Log.hid.error("IOHIDManagerOpen failed: \(code, privacy: .public)")
         } else {
-            Log.hid.info(
-                "watching for HID device pid=\(String(format: "0x%04X", self.device.productId), privacy: .public) usagePage=\(String(format: "0x%04X", self.device.usagePage), privacy: .public) usage=\(String(format: "0x%04X", self.device.usage), privacy: .public)"
-            )
+            let pid = String(format: "0x%04X", device.productId)
+            let page = String(format: "0x%04X", device.usagePage)
+            let usage = String(format: "0x%04X", device.usage)
+            Log.hid
+                .info(
+                    "watching pid=\(pid, privacy: .public) usagePage=\(page, privacy: .public) usage=\(usage, privacy: .public)"
+                )
         }
     }
 
@@ -138,14 +143,15 @@ final class HIDLink {
         // dict, so any matched device IS our Raw HID interface.
         let result = IOHIDDeviceOpen(ioDevice, IOOptionBits(kIOHIDOptionsTypeNone))
         if result != kIOReturnSuccess {
-            Log.hid.error(
-                "IOHIDDeviceOpen failed: \(String(format: "0x%08X", result), privacy: .public) — may be held by another app (qmk-hid-host?)"
-            )
+            let code = String(format: "0x%08X", result)
+            Log.hid
+                .error("IOHIDDeviceOpen failed: \(code, privacy: .public) — may be held by another app (qmk-hid-host?)")
             return
         }
         openedDevice = ioDevice
         state = .connected(productId: device.productId)
-        Log.hid.info("matched device pid=\(String(format: "0x%04X", self.device.productId), privacy: .public)")
+        let pid = String(format: "0x%04X", device.productId)
+        Log.hid.info("matched device pid=\(pid, privacy: .public)")
         onStateChange?(state)
     }
 
@@ -154,7 +160,8 @@ final class HIDLink {
         IOHIDDeviceClose(opened, IOOptionBits(kIOHIDOptionsTypeNone))
         openedDevice = nil
         state = .offline
-        Log.hid.info("device removed pid=\(String(format: "0x%04X", self.device.productId), privacy: .public)")
+        let pid = String(format: "0x%04X", device.productId)
+        Log.hid.info("device removed pid=\(pid, privacy: .public)")
         onStateChange?(state)
     }
 

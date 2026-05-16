@@ -44,10 +44,10 @@ struct ResolvedDevice: Equatable {
 
     init?(_ device: Config.Device) {
         guard let pid = ResolvedDevice.parseHex(device.productId) else { return nil }
-        self.name = device.name
-        self.productId = pid
-        self.usagePage = device.usagePage ?? Self.qmkUsagePage
-        self.usage = device.usage ?? Self.qmkUsage
+        name = device.name
+        productId = pid
+        usagePage = device.usagePage ?? Self.qmkUsagePage
+        usage = device.usage ?? Self.qmkUsage
     }
 
     /// Parses "0x0001" / "0X1" / "1" → UInt32. Returns nil on invalid input.
@@ -82,9 +82,11 @@ enum ConfigStore {
                 try writeDefault(to: url)
                 Log.config.info("seeded default config at \(url.path, privacy: .public)")
             } catch {
-                Log.config.error(
-                    "failed to seed default config at \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
+                let message = error.localizedDescription
+                Log.config
+                    .error(
+                        "failed to seed default config at \(url.path, privacy: .public): \(message, privacy: .public)"
+                    )
             }
             return .default
         }
@@ -95,9 +97,11 @@ enum ConfigStore {
             Log.config.info("loaded config from \(url.path, privacy: .public)")
             return decoded
         } catch {
-            Log.config.error(
-                "failed to parse config at \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public) — using defaults"
-            )
+            let message = error.localizedDescription
+            Log.config
+                .error(
+                    "failed to parse config at \(url.path, privacy: .public): \(message, privacy: .public) — using defaults"
+                )
             return .default
         }
     }

@@ -2,17 +2,16 @@ import Foundation
 @testable import RuEnSync
 import Testing
 
-@Suite("Config decoding")
 struct ConfigDecodingTests {
     @Test("decodes qmk-hid-host-style config")
     func decodesCompatConfig() throws {
-        let json = """
+        let json = Data("""
         {
           "devices": [{ "productId": "0x0001", "name": "Corne" }],
           "layouts": ["ABC", "Russian"],
           "reconnectDelay": 5000
         }
-        """.data(using: .utf8)!
+        """.utf8)
 
         let config = try JSONDecoder().decode(Config.self, from: json)
         #expect(config.layouts == ["ABC", "Russian"])
@@ -24,7 +23,7 @@ struct ConfigDecodingTests {
 
     @Test("decodes explicit usage/usagePage when provided")
     func decodesExplicitUsage() throws {
-        let json = """
+        let json = Data("""
         {
           "devices": [{
             "productId": "0x1234",
@@ -34,7 +33,7 @@ struct ConfigDecodingTests {
           }],
           "layouts": ["EN"]
         }
-        """.data(using: .utf8)!
+        """.utf8)
 
         let config = try JSONDecoder().decode(Config.self, from: json)
         #expect(config.devices[0].usagePage == 0xFF60)
@@ -42,7 +41,6 @@ struct ConfigDecodingTests {
     }
 }
 
-@Suite("ResolvedDevice")
 struct ResolvedDeviceTests {
     @Test("parses 0x-prefixed product id")
     func parsesHexProductId() {
