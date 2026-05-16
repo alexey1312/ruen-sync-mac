@@ -103,7 +103,14 @@ jobs:
           bash Scripts/notarize.sh
 
       # ----------------------------------------------------------------------
-      # Unsigned fallback path — bundles the ad-hoc-signed .app into a DMG.
+      # Unsigned fallback path — re-sign the bundle ad-hoc, then DMG it.
+      #
+      # Without re-signing, embedded frameworks (Sparkle) keep their original
+      # signature. macOS dyld then refuses to load them because the process
+      # and the framework have different Team IDs ("mapping process and
+      # mapped file have different Team IDs"). The fix is a `--deep` ad-hoc
+      # re-sign that overwrites every nested signature with one matching the
+      # main executable's ad-hoc identity.
       # ----------------------------------------------------------------------
       - name: Package DMG (unsigned fallback)
         if: ${{ env.HAS_SIGNING != 'true' }}
@@ -112,9 +119,12 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           APP_PATH="$(find ~/Library/Developer/Xcode/DerivedData -name 'RuEnSync.app' -path '*/Release/*' -type d | head -1)"
+          echo "→ Re-signing ${APP_PATH} ad-hoc (deep)"
+          codesign --force --deep --sign - "$APP_PATH"
+          codesign --verify --verbose=2 "$APP_PATH"
           mkdir -p build/dist
           hdiutil create -volname "RuEnSync" -srcfolder "$APP_PATH" -ov -format UDZO "build/dist/RuEnSync.dmg"
-          echo "Built unsigned DMG (no signing secrets configured)"
+          echo "Built unsigned DMG (ad-hoc re-signed; no Developer ID configured)"
 
       - name: Compute DMG SHA256
         id: sha
