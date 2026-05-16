@@ -48,6 +48,8 @@ RuEnSync addresses all three:
   polling, CPU ≈ 0.
 - Registers via `SMAppService` — visible in _System Settings → General → Login Items_.
 - Ships signed & notarized — first run is a normal app launch, no security prompt.
+- **In-app auto-updates** via [Sparkle](https://sparkle-project.org) — silent
+  daily check, EdDSA-verified DMG, install on quit. No manual re-downloading.
 
 It speaks the **same wire protocol** as `qmk-hid-host` (`[0x00, 0xAC, idx, 0×30]` —
 33-byte HID Output Report). Existing firmware needs no changes.
@@ -151,6 +153,7 @@ Source layout:
 | `RuEnSync/HIDLink.swift`         | `IOHIDManager` matching, open/close, `SetReport`        |
 | `RuEnSync/ConfigStore.swift`     | Schema + load/seed-default                              |
 | `RuEnSync/LoginItem.swift`       | `SMAppService.mainApp` register/unregister              |
+| `RuEnSync/Updater.swift`         | Sparkle wrapper + SwiftUI view-model bridge             |
 | `RuEnSync/RuEnSync.entitlements` | Empty: IOKit/Carbon work outside the sandbox            |
 | `Project.swift`                  | Tuist project description                               |
 
@@ -238,6 +241,56 @@ prompts on first launch). With them, the DMG is fully notarized and stapled.
 
 If unset, the cask isn't bumped — release still works, just not auto-installable
 via `brew install --cask`.
+
+### Sparkle auto-updates (one-time setup)
+
+The app uses [Sparkle 2](https://sparkle-project.org) for in-app updates. Each
+DMG is signed with an EdDSA private key in CI; the corresponding public key is
+baked into `Project.swift` and checked by Sparkle inside the running app before
+applying any update.
+
+**1. Generate a keypair (run once, locally — needs Sparkle's tools):**
+
+```bash
+# Anywhere — the tool just writes the pair to ~/Library/Application Support/Sparkle
+brew install --cask sparkle
+generate_keys                              # prints the public key
+generate_keys -p                           # prints the same public key for paste
+generate_keys -x sparkle_private_key.pem   # exports the private key to a file
+```
+
+**2. Paste the public key into `Project.swift`** — replace
+`REPLACE_ME_WITH_GENERATED_PUBLIC_ED_KEY` with the value `generate_keys -p`
+printed.
+
+**3. Store the private key as a GitHub secret:**
+
+```bash
+gh secret set SPARKLE_PRIVATE_KEY < sparkle_private_key.pem
+rm sparkle_private_key.pem
+```
+
+**4. Create the `gh-pages` branch** to host the appcast:
+
+```bash
+git checkout --orphan gh-pages
+git rm -rf .
+echo "RuEnSync appcast" > README.md
+git add README.md
+git commit -m "init gh-pages"
+git push origin gh-pages
+git checkout main
+```
+
+**5. Enable GitHub Pages** — _Settings → Pages → Source: `gh-pages` branch,
+`/` root_. Wait for the first deploy; the URL will be
+`https://alexey1312.github.io/ruen-sync-mac/`. The CI workflow writes
+`appcast.xml` into that branch on every release.
+
+Without these steps, the release still ships — the Sparkle steps in
+`release.yml` are gated on `SPARKLE_PRIVATE_KEY` being set and silently skip
+when absent. Existing installs simply won't see the new version in their
+"Check for Updates…" dialog until the appcast is published.
 
 ## License
 
