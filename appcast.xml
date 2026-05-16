@@ -3,6 +3,15 @@
     <channel>
         <title>RuEnSync</title>
         <item>
+            <title>1.2.0</title>
+            <pubDate>Sat, 16 May 2026 16:30:16 +0000</pubDate>
+            <link>https://github.com/alexey1312/ruen-sync-mac</link>
+            <sparkle:version>1.2.0</sparkle:version>
+            <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/alexey1312/ruen-sync-mac/releases/download/v1.2.0/RuEnSync.dmg" length="2460064" type="application/octet-stream" sparkle:edSignature="KBC4g7Jdw0662WpTbOvV3yprsxIbz/GDMQcqSsqtqfchQxB1sd1dFYGoa1RY3DViuqLNeFVBVvfqBlan/WarBQ=="/>
+        </item>
+        <item>
             <title>1.0</title>
             <pubDate>Sat, 16 May 2026 15:18:59 +0000</pubDate>
             <link>https://github.com/alexey1312/ruen-sync-mac</link>
