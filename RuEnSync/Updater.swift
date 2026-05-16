@@ -48,10 +48,13 @@ final class Updater {
 final class CheckForUpdatesViewModel: ObservableObject {
     @Published var canCheckForUpdates = false
 
-    private var cancellable: AnyCancellable?
-
     init(updater: SPUUpdater) {
-        cancellable = updater.publisher(for: \.canCheckForUpdates)
-            .assign(to: \.canCheckForUpdates, on: self)
+        // `assign(to: &$published)` writes straight into the @Published
+        // storage and manages the subscription's lifetime itself. The more
+        // general `assign(to:on:)` would have captured `self` strongly and
+        // — combined with `self` owning the AnyCancellable — leaked the
+        // view model on every instantiation.
+        updater.publisher(for: \.canCheckForUpdates)
+            .assign(to: &$canCheckForUpdates)
     }
 }

@@ -217,15 +217,20 @@ private struct MenuContent: View {
 /// Menu item that triggers Sparkle's update check. We can't bind directly to
 /// `updater.canCheckForUpdates` because Sparkle's `SPUUpdater` is KVO-based,
 /// not `@Observable`; the view-model in `Updater.swift` bridges KVO into
-/// `@Published`, which SwiftUI's `@ObservedObject` knows how to track. This
-/// is the pattern Sparkle's own SwiftUI docs recommend.
+/// `@Published`, which SwiftUI's `@StateObject` knows how to track. This is
+/// the pattern Sparkle's own SwiftUI docs recommend.
+///
+/// `@StateObject` rather than `@ObservedObject`: this view owns the lifetime
+/// of `CheckForUpdatesViewModel`. With `@ObservedObject`, a parent re-render
+/// would rebuild the VM (and its KVO subscription), silently breaking the
+/// disable-while-checking behaviour.
 private struct CheckForUpdatesMenuItem: View {
     let updater: Updater
-    @ObservedObject private var checker: CheckForUpdatesViewModel
+    @StateObject private var checker: CheckForUpdatesViewModel
 
     init(updater: Updater) {
         self.updater = updater
-        checker = CheckForUpdatesViewModel(updater: updater.updater)
+        _checker = StateObject(wrappedValue: CheckForUpdatesViewModel(updater: updater.updater))
     }
 
     var body: some View {
