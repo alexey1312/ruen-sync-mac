@@ -44,6 +44,72 @@ enum ActivityKind: Equatable {
     }
 }
 
+// MARK: - ActivityKind ↔ storage
+
+/// Flat representation used by `ActivityDatabase`. We deliberately don't
+/// reach for `Codable` here — the columnar layout keeps SQL queries
+/// (filter by `kind`, aggregate by `device_name`) trivial and indexable.
+struct ActivityKindStorable {
+    let discriminator: String
+    let deviceName: String?
+    let reason: String?
+    let label: String?
+}
+
+extension ActivityKind {
+    var storable: ActivityKindStorable {
+        switch self {
+        case let .layoutChanged(label):
+            .init(discriminator: "layoutChanged", deviceName: nil, reason: nil, label: label)
+        case let .deviceConnected(name):
+            .init(discriminator: "deviceConnected", deviceName: name, reason: nil, label: nil)
+        case let .deviceDisconnected(name, reason):
+            .init(discriminator: "deviceDisconnected", deviceName: name, reason: reason, label: nil)
+        case let .deviceOfflineReasonChanged(name, reason):
+            .init(discriminator: "deviceOfflineReasonChanged", deviceName: name, reason: reason, label: nil)
+        case let .osHandshakeSent(name):
+            .init(discriminator: "osHandshakeSent", deviceName: name, reason: nil, label: nil)
+        case let .osHandshakeFailed(name):
+            .init(discriminator: "osHandshakeFailed", deviceName: name, reason: nil, label: nil)
+        case .reconnectTriggered:
+            .init(discriminator: "reconnectTriggered", deviceName: nil, reason: nil, label: nil)
+        }
+    }
+
+    // swiftlint:disable cyclomatic_complexity
+
+    /// Reverse of `storable`. Returns `nil` for unknown discriminators (e.g.
+    /// when a newer build wrote a row this build doesn't understand yet) or
+    /// for rows missing required payload — defensively dropping a corrupted
+    /// row is better than crashing the menubar.
+    init?(discriminator: String, deviceName: String?, reason: String?, label: String?) {
+        switch discriminator {
+        case "layoutChanged":
+            guard let label else { return nil }
+            self = .layoutChanged(label: label)
+        case "deviceConnected":
+            guard let deviceName else { return nil }
+            self = .deviceConnected(name: deviceName)
+        case "deviceDisconnected":
+            guard let deviceName, let reason else { return nil }
+            self = .deviceDisconnected(name: deviceName, reason: reason)
+        case "deviceOfflineReasonChanged":
+            guard let deviceName, let reason else { return nil }
+            self = .deviceOfflineReasonChanged(name: deviceName, reason: reason)
+        case "osHandshakeSent":
+            guard let deviceName else { return nil }
+            self = .osHandshakeSent(name: deviceName)
+        case "osHandshakeFailed":
+            guard let deviceName else { return nil }
+            self = .osHandshakeFailed(name: deviceName)
+        case "reconnectTriggered":
+            self = .reconnectTriggered
+        default:
+            return nil
+        }
+    }
+}
+
 // MARK: - ActivityEntry
 
 /// One row in the activity log. Immutable. Comparable for tests.
@@ -61,34 +127,87 @@ struct ActivityEntry: Identifiable, Equatable {
 
 // MARK: - ActivityStore
 
-/// Fixed-capacity, newest-first ring buffer for recent app events. Lives in
-/// memory only — the app is a single-process daemon and persisting across
-/// launches would mostly capture "the last time you rebooted", which has no
-/// diagnostic value. SQLite/JSON persistence is intentionally not used.
+/// Persistence-backed, newest-first activity log. The in-memory `entries`
+/// array mirrors the most recent `capacity` rows from SQLite (`activity`
+/// table at `~/.config/RuEnSync/activity.db`). Writes go to both the DB
+/// and the mirror; the mirror is what the menubar UI binds to via
+/// `@Observable`.
+///
+/// Persistence lets users see activity from prior sessions and gives any
+/// future CLI / health-check companion a single source of truth, while the
+/// bounded mirror keeps the menubar's SwiftUI rebuilds cheap.
 @MainActor
 @Observable
 final class ActivityStore {
-    /// Newest first. Capped at `capacity`; older entries fall off the back.
+    /// Newest first. Mirrors the latest `capacity` rows from the DB.
     private(set) var entries: [ActivityEntry] = []
 
     let capacity: Int
+    private let database: ActivityDatabase?
 
+    /// Production initialiser — opens (or creates) the SQLite store next to
+    /// the config file. A failure here downgrades the store to in-memory
+    /// only; the app still works, the user just loses cross-launch history.
     init(capacity: Int = 100) {
         self.capacity = capacity
+        let path = Self.defaultDatabaseURL().path
+        do {
+            let db = try ActivityDatabase(path: path)
+            database = db
+            entries = db.loadRecent(limit: capacity)
+        } catch {
+            Log.app.error(
+                "ActivityStore failed to open \(path, privacy: .public) — running in-memory: \(error.localizedDescription, privacy: .public)"
+            )
+            database = nil
+        }
     }
 
-    /// Append a new entry. O(1) amortised; trims from the tail when over
-    /// `capacity` so we never grow unbounded inside a long-running session.
+    /// Test-only initialiser. Pass in a pre-built database (in-memory or
+    /// pointed at a temp file) so tests don't touch the user's real log.
+    init(capacity: Int = 100, database: ActivityDatabase?) {
+        self.capacity = capacity
+        self.database = database
+        entries = database?.loadRecent(limit: capacity) ?? []
+    }
+
+    /// Append a new entry. Persists to SQLite first, then prepends to the
+    /// in-memory mirror. The capacity cap applies to the mirror only — the
+    /// DB keeps the full history.
     func record(_ kind: ActivityKind) {
-        entries.insert(ActivityEntry(kind: kind), at: 0)
+        let entry = ActivityEntry(kind: kind)
+        if let database {
+            do {
+                try database.insert(entry)
+            } catch {
+                Log.app.error("ActivityStore insert failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        entries.insert(entry, at: 0)
         if entries.count > capacity {
             entries.removeLast(entries.count - capacity)
         }
     }
 
-    /// Clear all entries. Wired to the "Clear activity" menu item.
+    /// Clear all entries — from the DB and the mirror. Wired to the
+    /// "Clear activity" menu item.
     func clear() {
+        if let database {
+            do {
+                try database.clear()
+            } catch {
+                Log.app.error("ActivityStore clear failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
         entries.removeAll()
+    }
+
+    /// Default storage location: same directory as `config.json`. Created
+    /// on demand by `ActivityDatabase` itself (`Connection` will open the
+    /// file inside an existing dir; the dir is created by `ConfigStore`).
+    private static func defaultDatabaseURL() -> URL {
+        ConfigStore.configURL.deletingLastPathComponent()
+            .appendingPathComponent("activity.db")
     }
 }
 
