@@ -33,7 +33,7 @@ RuEnSync/
 ├── RuEnSyncApp.swift       @main SwiftUI App, MenuBarExtra UI
 ├── AppModel.swift          @Observable state; wires LayoutWatcher → HIDLink
 ├── LayoutWatcher.swift     DistributedNotificationCenter + Carbon TIS API
-├── HIDLink.swift           IOHIDManager wrapper, 33-byte report writer
+├── HIDLink.swift           IOHIDManager wrapper, 32-byte report writer
 ├── ConfigStore.swift       ~/.config/RuEnSync/config.json loader + LayoutResolver
 ├── LoginItem.swift         SMAppService.mainApp register/unregister
 ├── Logger.swift            os.Logger subsystem wrappers (Log.layout, Log.hid, …)
@@ -64,10 +64,18 @@ Scripts/
    `.main` queue guarantees we're already on the main thread, so the assumption is
    correct. See `LayoutWatcher.start()`.
 
-4. **HID report is 33 bytes, not 32.** `IOHIDDeviceSetReport` expects the report ID
-   as byte 0, followed by the 32-byte QMK `RAW_EPSIZE` payload. So `[0x00, 0xAC,
-   idx, 0×30]`. Sending 32 bytes (without the 0x00 prefix) silently fails — IOKit
-   rejects, the firmware never sees it. See `HIDLink.send(layoutIndex:)`.
+4. **HID report is exactly 32 bytes (`RAW_EPSIZE`), starting with the data-type byte.**
+   `IOHIDDeviceSetReport(reportID = 0, …)` on macOS sends the buffer **as-is** —
+   it does NOT strip a leading report-ID byte the way hidapi does. So the buffer
+   must be `[0xAC, idx, 0×30]` (32 bytes), not `[0x00, 0xAC, idx, 0×30]` (33).
+   Sending the 33-byte hidapi-style form is the subtle bug that silently breaks
+   sync: the device receives `data[0] = 0x00`, fails the `data[0] == 0xAC`
+   check, and drops the packet. Apple docs on `IOHIDDeviceSetReport`: "For
+   output reports, the bytes are sent as-is to the device." hidapi's macOS
+   backend handles the discrepancy by stripping a leading `0x00` before
+   calling `IOHIDDeviceSetReport`; we call IOKit directly, so we must build
+   the wire-correct buffer ourselves. See `HIDLink.buildReport(layoutIndex:)`
+   and `HIDPacketTests.swift`.
 
 5. **Device selector is `(productId, usagePage, usage)`, NOT vendorId.** The Rust
    `qmk-hid-host` also doesn't use vendorId. We match on the QMK Raw HID convention:
