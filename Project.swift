@@ -6,7 +6,11 @@ import ProjectDescription
 // =============================================================================
 
 let bundleId = "com.alexey1312.ruensync"
-let deploymentTarget: DeploymentTargets = .macOS("26.0")
+/// macOS 14.0 (Sonoma) is the floor — @Observable from the Observation module
+/// is the lowest-OS-bound API we use. Lowering further would require switching
+/// to ObservableObject/@Published throughout. MenuBarExtra, ImageRenderer,
+/// SMAppService.mainApp are all 13.0+, well within budget.
+let deploymentTarget: DeploymentTargets = .macOS("14.0")
 
 let app = Target.target(
     name: "RuEnSync",
@@ -16,7 +20,7 @@ let app = Target.target(
     deploymentTargets: deploymentTarget,
     infoPlist: .extendingDefault(with: [
         "LSUIElement": true,
-        "LSMinimumSystemVersion": "26.0",
+        "LSMinimumSystemVersion": "14.0",
         "CFBundleDisplayName": "RuEnSync",
         "LSApplicationCategoryType": "public.app-category.utilities",
         "NSHumanReadableCopyright": "Copyright © 2026 Aleksei Kakoulin. MIT License.",
@@ -30,7 +34,7 @@ let app = Target.target(
         base: [
             "SWIFT_VERSION": "6.0",
             "SWIFT_STRICT_CONCURRENCY": "complete",
-            "MACOSX_DEPLOYMENT_TARGET": "26.0",
+            "MACOSX_DEPLOYMENT_TARGET": "14.0",
             "ENABLE_HARDENED_RUNTIME": "YES",
             "CODE_SIGN_STYLE": "Manual",
             "CODE_SIGN_IDENTITY": "-",

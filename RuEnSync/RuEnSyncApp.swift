@@ -29,13 +29,25 @@ struct RuEnSyncApp: App {
 
 // MARK: - Menu label (icon in the menubar)
 
+/// EN/RU pill rendered into the menubar. Visual goals:
+///
+/// 1. Calm, not loud. The default `.red`/`.blue` system colors are tuned for
+///    accent contexts (buttons, links) and read as aggressive shouting in a
+///    16-pt-tall menubar slot. Hand-tuned, slightly desaturated hues sit
+///    closer to "tag colour" than "alarm".
+/// 2. Equal optical width. EN and RU have different glyph widths in
+///    proportional fonts; using monospaced digits + tight horizontal padding
+///    keeps the pill width constant so the surrounding menubar layout
+///    doesn't jitter on every layout change.
+/// 3. Background pill softens the colour and gives the letter pair a
+///    container, so it reads as one symbol instead of two loose glyphs.
 private struct MenuLabel: View {
     let model: AppModel
 
     var body: some View {
         // MenuBarExtra with .menu style force-renders `Text` in the system
         // menubar tint and silently ignores `.foregroundStyle`. To actually
-        // colour the EN/RU label we render the SwiftUI text into an NSImage
+        // colour the EN/RU label we render the SwiftUI view into an NSImage
         // via ImageRenderer and mark it non-template, so AppKit treats it as
         // a bitmap and keeps our colour. Re-renders on every layoutIndex
         // change because the @Observable read in `renderedLabel` invalidates
@@ -48,22 +60,37 @@ private struct MenuLabel: View {
         }
     }
 
-    /// EN — blue, RU — red, unknown — secondary grey.
-    private var color: Color {
+    /// Hand-tuned colours, NOT system `.red`/`.blue`. See goal (1) on
+    /// `MenuLabel`. Light/dark menubar both work because the pill sits on
+    /// top of the menubar's blur, not on raw white/black.
+    private var foreground: Color {
         switch model.layoutIndex {
-        case .some(0): .blue
-        case .some: .red
+        case .some(0): Color(red: 0.35, green: 0.60, blue: 0.98) // calm Apple-blue
+        case .some: Color(red: 0.92, green: 0.42, blue: 0.42) // warm coral
         case .none: .secondary
         }
+    }
+
+    private var background: Color {
+        foreground.opacity(0.18)
     }
 
     @MainActor
     private var renderedLabel: NSImage? {
         let view = Text(model.languageLabel)
-            .font(.system(size: 13, weight: .bold, design: .rounded))
-            .foregroundStyle(color)
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .kerning(0.3)
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(background)
+            )
         let renderer = ImageRenderer(content: view)
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        renderer.isOpaque = false
         guard let image = renderer.nsImage else { return nil }
         image.isTemplate = false
         return image

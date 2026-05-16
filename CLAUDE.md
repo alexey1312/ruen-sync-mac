@@ -13,7 +13,9 @@ written specifically for the
 
 - **Tuist** (`Project.swift`, `Tuist.swift`) generates the Xcode project. No checked-in
   `.xcodeproj` — regenerate with `mise run generate`.
-- **Swift 6** with strict concurrency. macOS 26 minimum.
+- **Swift 6** with strict concurrency. macOS 14 (Sonoma) minimum — bound by
+  `@Observable` / Observation framework. Lowering further would require
+  switching to `ObservableObject`/`@Published`.
 - **SwiftUI** `MenuBarExtra` (the new declarative menubar API).
 - **mise** drives all tasks (build, test, lint, format, release). See `mise.toml`.
 - **hk + pkl** for git hooks (pre-commit auto-formats + lints).
