@@ -48,6 +48,12 @@ struct RuEnSyncApp: App {
 ///    desaturated pill = sync is broken (no device connected / busy /
 ///    qmk-hid-host holding the lock). The dropdown carries the actual
 ///    reason; the menubar just answers "is sync working right now?".
+/// 5. Online pill uses a near-opaque fill + white text rather than a tinted
+///    glyph on a translucent tint of the same hue. The translucent form
+///    silently broke on coloured wallpapers — a blue desktop turned the
+///    menubar bluish too, and the EN pill (same hue throughout) disappeared
+///    into it. White-on-saturated-colour is an isoluminance-safe contrast
+///    that survives any wallpaper tint.
 private struct MenuLabel: View {
     let model: AppModel
 
@@ -79,21 +85,26 @@ private struct MenuLabel: View {
         }
     }
 
-    /// Online: full-weight base colour. Offline: same hue but desaturated to
-    /// half-alpha so EN/RU still hints at the current macOS layout while
-    /// reading as "muted / not active".
+    /// Online: white glyph for guaranteed contrast against the saturated
+    /// pill underneath (works on light AND dark menubars, regardless of
+    /// wallpaper tint). Offline: muted base hue at half-alpha — the pill
+    /// fades to "ghost" without disappearing, and the colour still hints at
+    /// the current macOS layout.
     private var foreground: Color {
-        model.isAnyDeviceConnected ? baseColor : baseColor.opacity(0.5)
+        model.isAnyDeviceConnected ? .white : baseColor.opacity(0.5)
     }
 
-    /// Filled background when sync is reaching a device. `.clear` when
-    /// offline — combined with the stroke this flips the pill from
-    /// filled-tag to outlined-tag without changing its footprint.
+    /// Solid base colour when online so the pill carries its own contrast
+    /// instead of relying on the menubar blur (which tints with the
+    /// wallpaper underneath and could match our hue). `.clear` when offline,
+    /// combined with the stroke, flips the pill from filled-tag to
+    /// outlined-tag without changing its footprint.
     private var background: Color {
-        model.isAnyDeviceConnected ? baseColor.opacity(0.18) : .clear
+        model.isAnyDeviceConnected ? baseColor : .clear
     }
 
-    /// Invisible when online; outlined in the muted base hue when offline.
+    /// Invisible when online (the solid fill is the boundary); outlined in
+    /// the muted base hue when offline.
     private var strokeColor: Color {
         model.isAnyDeviceConnected ? .clear : baseColor.opacity(0.55)
     }
