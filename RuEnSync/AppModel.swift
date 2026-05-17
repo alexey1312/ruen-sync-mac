@@ -27,12 +27,19 @@ final class AppModel {
     /// Per-device status. Empty if config has no usable devices.
     private(set) var deviceStatuses: [DeviceStatus] = []
 
+    /// Name of the conflicting app we've yielded the HID device to, or `nil`
+    /// when we're operating normally. While non-nil all HID links are stopped
+    /// and no reconnect attempts are scheduled — we sit out until the app
+    /// quits and ConflictWatcher fires `onConflictCleared`.
+    private(set) var yieldedTo: String?
+
     /// Recent events, newest first. UI binds to this for the activity panel.
     let activity = ActivityStore()
 
     private let config: Config
     private var hidLinks: [HIDLink] = []
     private let layoutWatcher: LayoutWatcher
+    private let conflictWatcher = ConflictWatcher()
 
     /// Background task that retries `reconnectAll()` while any link is offline
     /// for a recoverable reason. `nil` when no retry is pending. Cancelled the
@@ -63,18 +70,85 @@ final class AppModel {
             }
         }
         layoutWatcher.start()
-        buildAndStartLinks()
+
+        // Conflict watcher is started BEFORE buildAndStartLinks so that an
+        // already-running Vial/QMK Toolbox seeds `yieldedTo` synchronously
+        // (handleConflictAppeared runs from inside conflictWatcher.start()
+        // when the seed scan finds a running app). We then skip the initial
+        // buildAndStartLinks(); resume happens later via onConflictCleared.
+        conflictWatcher.onConflictAppeared = { [weak self] name in
+            self?.handleConflictAppeared(appName: name)
+        }
+        conflictWatcher.onConflictCleared = { [weak self] in
+            self?.handleConflictCleared()
+        }
+        conflictWatcher.start()
+
+        if yieldedTo == nil {
+            buildAndStartLinks()
+        }
     }
 
     /// Tears down all HID links and rebuilds them. Wired to the "Reconnect"
     /// menubar button: lets users recover after killing a conflicting daemon
     /// (typically qmk-hid-host) without restarting the whole app.
+    ///
+    /// While `yieldedTo != nil` this is a no-op except for the activity
+    /// record — manual reconnect while paused for Vial would just race the
+    /// running Vial and lose. Users wanting to forcibly retake the device
+    /// must use `forceResume()` (which clears `yieldedTo` first).
     func reconnectAll() {
         activity.record(.reconnectTriggered)
+        if let yielded = yieldedTo {
+            // Bind to local to avoid the swiftformat "remove redundant self"
+            // pass eating the `self.yieldedTo` that Logger's @autoclosure
+            // requires inside an escaping context.
+            Log.app.info("reconnect ignored — yielded to \(yielded, privacy: .public)")
+            return
+        }
         for link in hidLinks {
             link.stop()
         }
         hidLinks = []
+        buildAndStartLinks()
+    }
+
+    /// User-initiated override: leave yielded state even if the conflicting
+    /// app is still running, and try to retake the device. Wired to the
+    /// "Resume anyway" menu item that appears only when yielded.
+    func forceResume() {
+        guard yieldedTo != nil else { return }
+        Log.app.info("force-resume requested by user")
+        handleConflictCleared()
+    }
+
+    // MARK: Conflict (Vial / QMK Toolbox) handling
+
+    private func handleConflictAppeared(appName: String) {
+        // Already yielded to something — record the *new* app but keep the
+        // current `yieldedTo` label since we don't track multiple concurrent
+        // conflicts in the UI (the activity log carries the full sequence).
+        if yieldedTo != nil {
+            activity.record(.yieldedToApp(name: appName))
+            return
+        }
+
+        yieldedTo = appName
+        cancelReconnectTask()
+        for link in hidLinks {
+            link.stop()
+        }
+        hidLinks = []
+        deviceStatuses = []
+        Log.app.info("yielded HID device to \(appName, privacy: .public)")
+        activity.record(.yieldedToApp(name: appName))
+    }
+
+    private func handleConflictCleared() {
+        guard let previousApp = yieldedTo else { return }
+        yieldedTo = nil
+        Log.app.info("resuming after \(previousApp, privacy: .public)")
+        activity.record(.resumedAfterApp(name: previousApp))
         buildAndStartLinks()
     }
 

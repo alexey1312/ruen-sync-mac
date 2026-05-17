@@ -108,10 +108,18 @@ struct ActivityKindTests {
             .osHandshakeSent(name: "x"),
             .osHandshakeFailed(name: "x"),
             .reconnectTriggered,
+            .yieldedToApp(name: "Vial"),
+            .resumedAfterApp(name: "Vial"),
         ]
         for kind in kinds {
             #expect(!kind.symbol.isEmpty)
         }
+    }
+
+    @Test("yield/resume headlines include the app name")
+    func yieldHeadlines() {
+        #expect(ActivityKind.yieldedToApp(name: "Vial").headline == "Yielded to Vial")
+        #expect(ActivityKind.resumedAfterApp(name: "Vial").headline == "Resumed after Vial")
     }
 
     @Test("storable round-trips for every kind")
@@ -124,6 +132,8 @@ struct ActivityKindTests {
             .osHandshakeSent(name: "Corne"),
             .osHandshakeFailed(name: "Corne"),
             .reconnectTriggered,
+            .yieldedToApp(name: "Vial"),
+            .resumedAfterApp(name: "QMK Toolbox"),
         ]
         for kind in kinds {
             let s = kind.storable

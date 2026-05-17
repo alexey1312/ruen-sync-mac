@@ -152,7 +152,20 @@ private struct MenuContent: View {
 
         Divider()
 
-        if model.deviceStatuses.isEmpty {
+        if let yieldedTo = model.yieldedTo {
+            // Yielded state takes the whole device-list slot — there's no
+            // useful per-device status while we're not even trying to open
+            // the endpoint. "Resume anyway" is escape-hatch for users whose
+            // conflicting app is already done but didn't quit (background
+            // tab, hidden window).
+            Label("Paused — \(yieldedTo) is running", systemImage: "pause.circle.fill")
+            Text("RuEnSync released the keyboard so \(yieldedTo) can use it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Resume anyway") {
+                model.forceResume()
+            }
+        } else if model.deviceStatuses.isEmpty {
             Label("No device configured", systemImage: "keyboard.badge.ellipsis")
         } else {
             ForEach(model.deviceStatuses) { status in
@@ -160,7 +173,7 @@ private struct MenuContent: View {
             }
         }
 
-        if model.isAnyDeviceConnected {
+        if model.yieldedTo == nil, model.isAnyDeviceConnected {
             Text("Layout: \(model.languageLabel)")
         }
 

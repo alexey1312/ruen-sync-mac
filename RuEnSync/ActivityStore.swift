@@ -14,6 +14,8 @@ enum ActivityKind: Equatable {
     case osHandshakeSent(name: String)
     case osHandshakeFailed(name: String)
     case reconnectTriggered
+    case yieldedToApp(name: String)
+    case resumedAfterApp(name: String)
 
     /// SF Symbol name for the row icon. Picked so the icon alone gives the
     /// user a rough idea of severity (`xmark.*` = bad, `arrow.triangle.*` =
@@ -27,6 +29,8 @@ enum ActivityKind: Equatable {
         case .osHandshakeSent: "checkmark.seal.fill"
         case .osHandshakeFailed: "xmark.seal.fill"
         case .reconnectTriggered: "arrow.clockwise"
+        case .yieldedToApp: "pause.circle.fill"
+        case .resumedAfterApp: "play.circle.fill"
         }
     }
 
@@ -40,6 +44,8 @@ enum ActivityKind: Equatable {
         case let .osHandshakeSent(name): "MAC handshake → \(name)"
         case let .osHandshakeFailed(name): "MAC handshake failed → \(name)"
         case .reconnectTriggered: "Reconnect triggered"
+        case let .yieldedToApp(name): "Yielded to \(name)"
+        case let .resumedAfterApp(name): "Resumed after \(name)"
         }
     }
 }
@@ -73,6 +79,10 @@ extension ActivityKind {
             .init(discriminator: "osHandshakeFailed", deviceName: name, reason: nil, label: nil)
         case .reconnectTriggered:
             .init(discriminator: "reconnectTriggered", deviceName: nil, reason: nil, label: nil)
+        case let .yieldedToApp(name):
+            .init(discriminator: "yieldedToApp", deviceName: name, reason: nil, label: nil)
+        case let .resumedAfterApp(name):
+            .init(discriminator: "resumedAfterApp", deviceName: name, reason: nil, label: nil)
         }
     }
 
@@ -104,6 +114,12 @@ extension ActivityKind {
             self = .osHandshakeFailed(name: deviceName)
         case "reconnectTriggered":
             self = .reconnectTriggered
+        case "yieldedToApp":
+            guard let deviceName else { return nil }
+            self = .yieldedToApp(name: deviceName)
+        case "resumedAfterApp":
+            guard let deviceName else { return nil }
+            self = .resumedAfterApp(name: deviceName)
         default:
             return nil
         }
