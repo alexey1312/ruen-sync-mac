@@ -27,6 +27,16 @@ struct RuEnSyncApp: App {
             MenuLabel(model: model)
         }
         .menuBarExtraStyle(.menu)
+
+        // Standalone window for the HID Inspector. `defaultSize` keeps the
+        // window non-zero on first show; subsequent positions/sizes are
+        // remembered by AppKit via `Restorable`. Identified by id so the
+        // menubar can pop it open with `@Environment(\.openWindow)`.
+        Window("HID Inspector", id: "hid-inspector") {
+            HIDInspectorView(packetLog: model.packetLog)
+        }
+        .defaultSize(width: 640, height: 480)
+        .windowResizability(.contentMinSize)
     }
 }
 
@@ -145,6 +155,7 @@ private struct MenuContent: View {
     let model: AppModel
     let updater: Updater
     @State private var showActivity = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Text("RuEnSync")
@@ -222,6 +233,22 @@ private struct MenuContent: View {
 
         Button("Open log…") {
             openLogStream()
+        }
+
+        Divider()
+
+        Menu("Debug") {
+            Button("HID Inspector…") {
+                openWindow(id: "hid-inspector")
+            }
+            Button("Export diagnostics…") {
+                Task {
+                    let packetLog = model.packetLog
+                    if let url = await Diagnostics.exportZip(packetLog: packetLog) {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                }
+            }
         }
 
         Divider()

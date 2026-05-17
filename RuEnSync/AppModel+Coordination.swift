@@ -107,6 +107,9 @@ extension AppModel {
             // reconnectAll is a no-op while yielded, so this is also safe
             // mid-Vial — links rebuild on resume against the new config.
             reconnectAll()
+        } else {
+            // No rebuild, but debug-flag changes still need to take effect.
+            refreshInspectionFlag()
         }
     }
 }

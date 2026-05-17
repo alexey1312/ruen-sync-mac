@@ -48,13 +48,26 @@ struct Config: Codable, Equatable {
     /// also requiring the user to enable the feature.
     var appLayoutSwitchingEnabled: Bool?
 
+    /// Per-feature debug toggles. Off by default; enabling them costs CPU
+    /// and memory (ring-buffer writes, persistent caches), so they're not
+    /// suitable for production use.
+    struct Debug: Codable, Equatable {
+        /// When true, every `HIDLink.send` enqueues a copy of the packet in
+        /// the inspector ring-buffer. When false (or unset), the buffer
+        /// stays empty and no allocations occur on the hot path.
+        var hidInspector: Bool?
+    }
+
+    var debug: Debug?
+
     static let `default` = Config(
         devices: [
             .init(name: "Corne", productId: "0x0001", usagePage: nil, usage: nil),
         ],
         layouts: ["ABC", "Russian"],
         appLayoutRules: nil,
-        appLayoutSwitchingEnabled: nil
+        appLayoutSwitchingEnabled: nil,
+        debug: nil
     )
 }
 

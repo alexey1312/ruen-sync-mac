@@ -53,6 +53,12 @@ final class HIDLink {
     private(set) var state: State = .offline(reason: .awaitingDevice)
     var onStateChange: ((State) -> Void)?
 
+    /// When non-nil and `inspectionEnabled` is true, every successful
+    /// `send` copies the 32-byte report into the log. Both fields are set
+    /// by AppModel — HIDLink doesn't read the config directly.
+    var packetLog: HIDPacketLog?
+    var inspectionEnabled: Bool = false
+
     // MARK: Configuration
 
     let device: ResolvedDevice
@@ -200,6 +206,12 @@ final class HIDLink {
         if result == kIOReturnSuccess {
             let pid = String(format: "0x%04X", device.productId)
             Log.hid.info("sent \(label, privacy: .public) to pid=\(pid, privacy: .public)")
+            // Inspection log: gated on a per-link flag rather than a per-send
+            // config lookup so the hot path stays cheap. AppModel flips the
+            // flag on every config reload to keep it in sync.
+            if inspectionEnabled, let packetLog {
+                packetLog.record(deviceName: device.name, productId: device.productId, bytes: buffer)
+            }
             return true
         }
         let code = String(format: "0x%08X", result)

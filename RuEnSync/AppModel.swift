@@ -39,6 +39,11 @@ final class AppModel {
     /// Recent events, newest first. UI binds to this for the activity panel.
     let activity = ActivityStore()
 
+    /// Ring-buffer of recent HID writes, surfaced by the Debug → HID
+    /// Inspector window. Bound to `Config.Debug.hidInspector` — empty when
+    /// the flag is off.
+    let packetLog = HIDPacketLog()
+
     // `internal` access (not `private`) so the coordination extension in
     // AppModel+Coordination.swift can read/write these. Swift's `private`
     // is per-type-per-file; extensions across files need at least internal.
@@ -204,13 +209,27 @@ final class AppModel {
             )
         }
 
+        let inspectionEnabled = config.debug?.hidInspector ?? false
         for link in hidLinks {
+            link.packetLog = packetLog
+            link.inspectionEnabled = inspectionEnabled
             link.onStateChange = { [weak self, weak link] newState in
                 guard let self, let link else { return }
                 guard let idx = hidLinks.firstIndex(where: { $0 === link }) else { return }
                 handleLinkStateChange(idx: idx, state: newState)
             }
             link.start()
+        }
+    }
+
+    /// Re-applies the `hidInspector` flag to every live HID link. Called
+    /// from the coordination extension after a config reload so toggling
+    /// `"debug": { "hidInspector": true }` in config.json takes effect
+    /// without needing to reconnect (which would interrupt typing).
+    func refreshInspectionFlag() {
+        let enabled = config.debug?.hidInspector ?? false
+        for link in hidLinks {
+            link.inspectionEnabled = enabled
         }
     }
 
