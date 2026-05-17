@@ -8,20 +8,28 @@ enum DSCardTone {
     /// Neutral grey card on a transparent background. Default for
     /// empty-state example boxes, About card backdrops.
     case neutral
-    /// Warning-tinted card. Used by the Settings error banner.
+    /// Warning-tinted card (passive). Used by the Settings error banner —
+    /// subtle wash that signals "this needs attention" without alert chrome.
     case warning
+    /// Tinted with an arbitrary accent colour. Used by the HID Inspector's
+    /// per-packet data_type badge, where each row picks its own hue
+    /// (LAYOUT / OS / UNK) and the card just paints fill + border at the
+    /// inspector-badge opacities. Bolder than `.neutral` / `.warning`.
+    case accentTinted(Color)
 
     var fill: Color {
         switch self {
         case .neutral: Color.secondary.opacity(0.06)
-        case .warning: Color.orange.opacity(0.10)
+        case .warning: Color.dsWarn.opacity(0.10)
+        case let .accentTinted(color): color.opacity(0.14)
         }
     }
 
     var border: Color {
         switch self {
         case .neutral: Color.secondary.opacity(0.18)
-        case .warning: Color.orange.opacity(0.35)
+        case .warning: Color.dsWarn.opacity(0.35)
+        case let .accentTinted(color): color.opacity(0.30)
         }
     }
 }

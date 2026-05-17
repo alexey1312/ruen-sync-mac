@@ -50,21 +50,19 @@ extension Color {
 
 extension Color {
     /// Maps a firmware layout index to the canonical EN/RU pill colour.
-    /// `nil` index returns the neutral fallback used in `MenuLabel` when
-    /// no layout has been read yet.
+    /// Mirrors the firmware contract in CLAUDE.md (`[0xAC, idx]`: idx 0 == EN,
+    /// non-zero == RU). `nil` index returns the neutral fallback used in
+    /// `MenuLabel` when no layout has been read yet.
+    ///
+    /// Binary palette is intentional. If a future firmware introduces a
+    /// third layout family (e.g. idx 2 == Greek), revisit this helper AND
+    /// the pill colour story across `MenuLabel`, `IndexBadge`, and the
+    /// HID Inspector together — they all assume two hues.
     static func dsAccent(forLayoutIndex idx: UInt8?) -> Color {
         switch idx {
         case .some(0): .dsAccentEN
         case .some: .dsAccentRU
         case .none: .secondary
         }
-    }
-
-    /// Badge-tone variant of `dsAccent(forLayoutIndex:)` — used inside
-    /// `IndexBadge` where the pill carries the colour against a tinted
-    /// fill, so it can lean slightly darker than the menubar pill (which
-    /// renders white text on the same hue).
-    static func dsAccentBadge(forLayoutIndex idx: Int) -> Color {
-        idx == 0 ? .dsAccentENBadge : .dsAccentRUBadge
     }
 }

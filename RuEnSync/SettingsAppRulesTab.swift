@@ -77,14 +77,14 @@ struct SettingsAppRulesTab: View {
         HStack(spacing: 8) {
             Text("Exact")
                 .font(.caption.weight(.medium))
-                .dsCapsule(tone: .muted, horizontalPadding: 8, verticalPadding: 3)
+                .dsCapsule(tone: .muted, size: .comfortable)
             Text("com.apple.Terminal")
                 .font(.body.monospaced())
             Image(systemName: "arrow.right")
                 .foregroundStyle(.secondary)
             Text("ABC")
                 .font(.body.monospaced())
-                .dsCapsule(tone: .accent, horizontalPadding: 8, verticalPadding: 3)
+                .dsCapsule(tone: .accent, size: .comfortable)
         }
         .padding(10)
         .dsCard()
@@ -109,6 +109,12 @@ private struct AppRuleRow: View {
 
     @State private var bundleDraft: String = ""
     @State private var matchKind: MatchKind = .exact
+    /// Cached LaunchServices lookup result. Refreshed only on commit /
+    /// row attach — NOT on every keystroke in the bundle TextField,
+    /// which would re-run `urlForApplication(withBundleIdentifier:)` +
+    /// `icon(forFile:)` per character and introduce typing latency on
+    /// slower Macs (and burn LaunchServices DB hits on every paste).
+    @State private var resolvedIconURL: URL?
     @FocusState private var bundleFocused: Bool
 
     var body: some View {
@@ -175,17 +181,15 @@ private struct AppRuleRow: View {
         }
     }
 
-    /// Resolves the system app icon for the current bundle id (when the
-    /// bundle is registered with LaunchServices). For prefix matches the
-    /// draft typically isn't a complete bundle id, so we only look up
-    /// exact-mode strings. Fallback is a neutral `app.dashed` glyph so
-    /// every row has a 22pt leading icon and the columns stay aligned.
+    /// Renders the cached system app icon for the current bundle id. The
+    /// cache (`resolvedIconURL`) is refreshed on commit + row attach via
+    /// `refreshResolvedIcon()`, so changing the TextField text doesn't
+    /// trigger a LaunchServices lookup per keystroke. Fallback is a
+    /// neutral `app.dashed` glyph that keeps every row's 22pt leading
+    /// slot occupied so columns stay aligned.
     @ViewBuilder
     private var appIconView: some View {
-        if matchKind == .exact,
-           let url = NSWorkspace.shared
-           .urlForApplication(withBundleIdentifier: bundleDraft.trimmingCharacters(in: .whitespaces))
-        {
+        if let url = resolvedIconURL {
             Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
                 .resizable()
                 .interpolation(.high)
@@ -195,7 +199,21 @@ private struct AppRuleRow: View {
                 .font(.system(size: 18))
                 .foregroundStyle(.tertiary)
                 .frame(width: 22, height: 22)
+                .help(matchKind == .exact
+                    ? String(localized: "No app installed with this bundle id")
+                    : String(localized: "Icon preview only available for exact matches"))
         }
+    }
+
+    /// Re-resolves the icon for the currently-displayed bundle id. Only
+    /// called on commit / row-attach — not on every keystroke.
+    private func refreshResolvedIcon() {
+        guard matchKind == .exact else {
+            resolvedIconURL = nil
+            return
+        }
+        let trimmed = bundleDraft.trimmingCharacters(in: .whitespaces)
+        resolvedIconURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: trimmed)
     }
 
     private func syncDraftFromRule(_ rule: Config.AppLayoutRule) {
@@ -207,6 +225,7 @@ private struct AppRuleRow: View {
             bundleDraft = p
             matchKind = .prefix
         }
+        refreshResolvedIcon()
     }
 
     /// Persist the draft. Empty / whitespace-only input is refused because
@@ -235,6 +254,7 @@ private struct AppRuleRow: View {
             }
             cfg.appLayoutRules = list
         }
+        refreshResolvedIcon()
     }
 }
 

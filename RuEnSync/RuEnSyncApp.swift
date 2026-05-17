@@ -119,9 +119,10 @@ private struct MenuLabel: View {
 
     /// Hand-tuned colours from `DSColor`. Light/dark menubar both work
     /// because the pill sits on top of the menubar's blur, not on raw
-    /// white/black. The shared palette ensures the menubar pill, the
-    /// `IndexBadge` in Settings, and the HID Inspector LAYOUT tag all
-    /// agree on the EN/RU hue.
+    /// white/black. Routes the menubar pill, `IndexBadge` in Settings,
+    /// and the HID Inspector LAYOUT tag through the same EN tint family
+    /// (the inspector always renders LAYOUT in the EN hue regardless of
+    /// the idx byte — its tag categorises the data_type, not the layout).
     private var baseColor: Color {
         Color.dsAccent(forLayoutIndex: model.layoutIndex)
     }

@@ -96,7 +96,7 @@ private struct LayoutRow: View {
                     .foregroundStyle(.tertiary)
                     .frame(width: 14)
 
-                IndexBadge(index: index)
+                IndexBadge(index: UInt8(index))
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(suffix)

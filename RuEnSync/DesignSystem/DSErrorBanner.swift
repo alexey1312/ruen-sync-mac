@@ -8,7 +8,7 @@ import SwiftUI
 /// banner in.
 ///
 /// Visual: rounded card with a thin border and tinted fill rather than
-/// a full-bleed coloured strip. The strip form (v1) read as system alert
+/// a full-bleed coloured strip. A coloured strip reads as system alert
 /// chrome — too loud for "we couldn't save, here's what to fix". The
 /// contained card reads as a passive warning the user can absorb at
 /// their own pace.
@@ -20,7 +20,7 @@ struct DSErrorBanner: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.dsWarn)
                 .padding(.top, 2)
             Text(text)
                 .font(.callout)
@@ -37,9 +37,6 @@ struct DSErrorBanner: View {
 
 // MARK: - DismissButton
 
-/// Pill-shaped × dismiss button. Lives next to the banner because
-/// nothing else needs this exact treatment yet — promote to a top-level
-/// DS primitive once a second user appears.
 private struct DismissButton: View {
     let action: () -> Void
 

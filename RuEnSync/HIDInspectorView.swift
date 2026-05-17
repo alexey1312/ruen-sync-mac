@@ -174,9 +174,11 @@ private struct PacketRow: View {
         .padding(.vertical, 6)
     }
 
-    /// Capsule badge showing the data_type byte in hex with a hue that
-    /// categorises the packet at-a-glance. Saves the user from parsing
-    /// the leading hex pair on every row.
+    /// Rounded-card badge showing the data_type byte in hex with a hue
+    /// that categorises the packet at-a-glance. Saves the user from
+    /// parsing the leading hex pair on every row. Routes through
+    /// `.dsCard(tone: .accentTinted(_))` so the fill/border opacities
+    /// stay aligned with the rest of the design system.
     private var dataTypeBadge: some View {
         let (label, color) = categorise()
         return VStack(spacing: 2) {
@@ -189,25 +191,20 @@ private struct PacketRow: View {
         }
         .frame(width: 44)
         .padding(.vertical, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(color.opacity(0.14))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(color.opacity(0.30), lineWidth: 1)
-        )
+        .dsCard(tone: .accentTinted(color), cornerRadius: 6)
     }
 
     /// Map the data_type byte to (short label, accent colour). LAYOUT
-    /// packets are by far the most frequent — calm blue mirrors the
-    /// EN pill. OS handshake is rare and important — same green as the
-    /// "connected" status dot. Anything else stands out as not-typical.
+    /// packets are by far the most frequent — calm blue mirrors the EN
+    /// tint family. OS handshake is rare and important — same green as
+    /// the "connected" status dot. Anything else is amber + `UNK` so a
+    /// future protocol byte (firmware contract reserves `0xB1+`) jumps
+    /// out instead of blending in as muted grey.
     private func categorise() -> (String, Color) {
         switch entry.bytes.first {
         case 0xAC: ("LAYOUT", .dsAccentENBadge)
         case 0xB0: ("OS", .dsOk)
-        default: ("?", .secondary)
+        default: ("UNK", .dsWarn)
         }
     }
 

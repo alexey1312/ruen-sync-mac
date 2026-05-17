@@ -234,7 +234,31 @@ final class AppModel {
 
     /// internal so AppModel+Coordination can rebuild after resume/config change.
     func buildAndStartLinks() {
-        let resolved = config.devices.compactMap(ResolvedDevice.init)
+        // Walk the config explicitly (rather than `compactMap`) so each
+        // unparseable productId is logged and surfaced — otherwise a typo
+        // in config.json yields a permanently-dead row with no breadcrumb.
+        var resolved: [ResolvedDevice] = []
+        var invalidNames: [String] = []
+        for device in config.devices {
+            if let r = ResolvedDevice(device) {
+                resolved.append(r)
+            } else {
+                invalidNames.append(device.name)
+                Log.config
+                    .error(
+                        "skipping device \"\(device.name, privacy: .public)\" — invalid productId \(device.productId, privacy: .public)"
+                    )
+            }
+        }
+        // Surface ONCE — only re-pop if the user dismissed and the
+        // banner slot is currently empty. Avoids spamming the banner
+        // on every reconnect/config-reload while bad rows persist.
+        if !invalidNames.isEmpty, lastSettingsError == nil {
+            let joined = invalidNames.joined(separator: ", ")
+            lastSettingsError = String(
+                localized: "Skipped device(s) with invalid productId: \(joined). Fix or remove them in Settings → Devices."
+            )
+        }
         if resolved.isEmpty {
             Log.app.error("no usable device in config — running in observe-only mode")
             hidLinks = []

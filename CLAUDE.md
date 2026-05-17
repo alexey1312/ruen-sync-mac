@@ -58,10 +58,10 @@ rounded-corner conventions stay consistent.
 | `Color.dsAccentENBadge/RUBadge`         | `DSColor.swift`       | Tinted capsule fills (slightly darker than pill hue)  |
 | `Color.dsOk/dsWarn/dsBad/dsUnknown`     | `DSColor.swift`       | Semantic status colours                               |
 | `Color.dsAccent(forLayoutIndex:)`       | `DSColor.swift`       | `nil`-safe lookup used by `MenuLabel` and friends     |
-| `.dsCapsule(tone:)`                     | `DSCapsule.swift`     | Inline pill backgrounds — see `DSCapsuleTone` cases   |
+| `.dsCapsule(tone:size:)`                | `DSCapsule.swift`     | Inline pill backgrounds — pick a `DSCapsuleSize`      |
 | `StatusDot(tint:)`                      | `StatusDot.swift`     | Device-connection state in lists / rows               |
-| `IndexBadge(index:)`                    | `IndexBadge.swift`    | Firmware layout-index column in row leading slot      |
-| `DSCard { }` modifier                   | `DSCard.swift`        | Empty-state / banner / example containers with border |
+| `IndexBadge(index: UInt8)`              | `IndexBadge.swift`    | Firmware layout-index column in row leading slot      |
+| `.dsCard(tone:cornerRadius:)` modifier  | `DSCard.swift`        | Empty-state / banner / example containers with border |
 | `DSTabHeader(title:subtitle:trailing:)` | `DSTabHeader.swift`   | Settings tab masthead (title + subtitle + action)     |
 | `DSErrorBanner(text:onDismiss:)`        | `DSErrorBanner.swift` | Recoverable error surfaces above content              |
 

@@ -66,6 +66,23 @@ struct SettingsDevicesTab: View {
     }
 }
 
+/// Three-state resolution of a config row to its live HIDLink. We split
+/// "the productId is malformed and we'll NEVER build a link" from "the
+/// link hasn't reported yet" because they look identical to the user
+/// otherwise — both render a grey dot — but the former is permanent and
+/// needs a louder tooltip + colour.
+private enum LiveDeviceStatus {
+    /// The config row's productId hex failed to parse. `AppModel.buildAndStartLinks`
+    /// silently skips this row, so no `HIDLink` exists for it. Permanent
+    /// until the user fixes the JSON.
+    case invalidProductId
+    /// Parses fine, but no matching status has been reported yet (transient
+    /// race on launch / reconnect).
+    case pending
+    /// Live link state from `model.deviceStatuses`.
+    case known(HIDLink.State)
+}
+
 /// Editable device row: name is editable via TextField (commit on blur),
 /// productId is read-only because changing it would invalidate the live
 /// HIDLink and the user almost always wants to "Remove + Scan + Add"
@@ -93,7 +110,7 @@ private struct DeviceRow: View {
 
                 Text(device.productId)
                     .font(.caption.monospaced())
-                    .dsCapsule(tone: .muted, horizontalPadding: 6)
+                    .dsCapsule(tone: .muted)
                     .frame(minWidth: 64, alignment: .trailing)
 
                 Button(role: .destructive) {
@@ -110,38 +127,59 @@ private struct DeviceRow: View {
         }
     }
 
-    /// Resolves the row's live link state by matching the config row's
-    /// productId hex against `model.deviceStatuses`. Matching by pid
-    /// rather than array index keeps us robust when an unparseable
-    /// device in config has been silently filtered out of
-    /// deviceStatuses (which would otherwise misalign the indices).
-    private func liveStatus(for device: Config.Device) -> HIDLink.State? {
-        guard let pid = ResolvedDevice.parseHex(device.productId) else { return nil }
-        return model.deviceStatuses.first { $0.productId == pid }?.state
+    /// Resolves the row's live state. Distinguishes three cases that
+    /// would otherwise collapse into a single `nil`:
+    ///   1. unparseable productId — the row will never become live
+    ///      because `AppModel.buildAndStartLinks` filters it out;
+    ///   2. parses but no status reported yet (transient race);
+    ///   3. parses and has a matching `deviceStatuses` entry.
+    /// Matching by pid (not array index) keeps us robust when an
+    /// unparseable device in config has been silently filtered out of
+    /// `deviceStatuses` (which would otherwise misalign the indices).
+    private func liveStatus(for device: Config.Device) -> LiveDeviceStatus {
+        guard let pid = ResolvedDevice.parseHex(device.productId) else {
+            return .invalidProductId
+        }
+        if let state = model.deviceStatuses.first(where: { $0.productId == pid })?.state {
+            return .known(state)
+        }
+        return .pending
     }
 
     private func dotTint(for device: Config.Device) -> StatusDot.Tint {
-        guard let state = liveStatus(for: device) else { return .unknown }
-        switch state {
-        case .connected:
-            return .ok
-        case let .offline(reason):
-            switch reason {
-            case .awaitingDevice, .exclusiveAccess:
-                return .warn
-            case .openFailed, .managerOpenFailed:
-                return .bad
+        switch liveStatus(for: device) {
+        case .invalidProductId:
+            .bad
+        case .pending:
+            .unknown
+        case let .known(state):
+            switch state {
+            case .connected:
+                .ok
+            case let .offline(reason):
+                switch reason {
+                case .awaitingDevice, .exclusiveAccess:
+                    .warn
+                case .openFailed, .managerOpenFailed:
+                    .bad
+                }
             }
         }
     }
 
     private func dotHelp(for device: Config.Device) -> String {
-        guard let state = liveStatus(for: device) else { return String(localized: "Unknown status") }
-        switch state {
-        case .connected:
-            return String(localized: "Connected")
-        case let .offline(reason):
-            return reason.menuLabel
+        switch liveStatus(for: device) {
+        case .invalidProductId:
+            String(localized: "Invalid productId — RuEnSync can't open this device")
+        case .pending:
+            String(localized: "Unknown status")
+        case let .known(state):
+            switch state {
+            case .connected:
+                String(localized: "Connected")
+            case let .offline(reason):
+                reason.menuLabel
+            }
         }
     }
 
@@ -255,7 +293,7 @@ private struct ScanRow: View {
                 Label("Added", systemImage: "checkmark")
                     .labelStyle(.titleAndIcon)
                     .font(.caption.weight(.medium))
-                    .dsCapsule(tone: .muted, horizontalPadding: 8, verticalPadding: 4)
+                    .dsCapsule(tone: .muted, size: .roomy)
             } else {
                 Button("Add") { addDevice() }
                     .buttonStyle(.borderedProminent)
