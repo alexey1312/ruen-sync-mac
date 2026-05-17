@@ -88,7 +88,7 @@ enum Diagnostics {
         }
 
         do {
-            try writeSystemInfo(to: workDir.appendingPathComponent("system.txt"))
+            try await writeSystemInfo(to: workDir.appendingPathComponent("system.txt"))
         } catch {
             errors.append(error)
             missing.append("system.txt")
@@ -210,11 +210,11 @@ enum Diagnostics {
         try body.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    private static func writeSystemInfo(to url: URL) throws {
+    private static func writeSystemInfo(to url: URL) async throws {
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
-        let model = (try? runShell("/usr/sbin/sysctl", arguments: ["-n", "hw.model"])) ?? "?"
+        let model = (try? await runShell("/usr/sbin/sysctl", arguments: ["-n", "hw.model"])) ?? "?"
         let lines = [
             "RuEnSync \(appVersion) (\(appBuild))",
             "macOS \(osVersion)",
@@ -226,7 +226,7 @@ enum Diagnostics {
 
     private static func writeRecentLog(to url: URL) async throws {
         let predicate = "subsystem == \"\(Log.subsystem)\""
-        let output = try runShell(
+        let output = try await runShell(
             "/usr/bin/log",
             arguments: ["show", "--predicate", predicate, "--info", "--last", "1h", "--style", "compact"]
         )
@@ -245,7 +245,7 @@ enum Diagnostics {
 
     private static func zip(workDir: URL, to zipURL: URL) async throws {
         // -r recursive, -j junk paths (don't store the tmp dir prefix), -q quiet.
-        _ = try runShell(
+        _ = try await runShell(
             "/usr/bin/zip",
             arguments: ["-r", "-j", "-q", zipURL.path, workDir.path]
         )
@@ -274,10 +274,19 @@ enum Diagnostics {
         }
     }
 
-    /// Synchronous Process runner. Returns stdout as UTF-8 string. Throws on
+    /// Async Process runner. Returns stdout as UTF-8 string. Throws on
     /// non-zero exit (including stderr in the error message).
+    ///
+    /// Drains stdout and stderr **concurrently** before `waitUntilExit`
+    /// completes. The naive "run → wait → readDataToEndOfFile" sequence
+    /// deadlocks once the child writes more than the pipe buffer (~64 KB
+    /// on macOS): the child blocks on `write()` and the parent blocks on
+    /// `waitUntilExit()`, neither side makes progress. `log show
+    /// --info --last 1h` routinely exceeds that threshold for users with
+    /// any non-trivial activity, so the previous synchronous variant
+    /// was a latent freeze.
     @discardableResult
-    private static func runShell(_ executable: String, arguments: [String]) throws -> String {
+    private static func runShell(_ executable: String, arguments: [String]) async throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -286,13 +295,24 @@ enum Diagnostics {
         process.standardOutput = stdout
         process.standardError = stderr
         try process.run()
+
+        // Detached Tasks so each pipe drains independently. Once both
+        // return EOF the child has closed its end (and therefore exited),
+        // so `waitUntilExit` is a non-blocking reaper that just publishes
+        // `terminationStatus`.
+        async let outDataTask: Data = Task.detached(priority: .userInitiated) {
+            stdout.fileHandleForReading.readDataToEndOfFile()
+        }.value
+        async let errDataTask: Data = Task.detached(priority: .userInitiated) {
+            stderr.fileHandleForReading.readDataToEndOfFile()
+        }.value
+        let outData = await outDataTask
+        let errData = await errDataTask
         process.waitUntilExit()
 
-        let outData = stdout.fileHandleForReading.readDataToEndOfFile()
         let outStr = String(data: outData, encoding: .utf8) ?? ""
 
         if process.terminationStatus != 0 {
-            let errData = stderr.fileHandleForReading.readDataToEndOfFile()
             let errStr = String(data: errData, encoding: .utf8) ?? ""
             throw NSError(domain: "Diagnostics", code: Int(process.terminationStatus), userInfo: [
                 NSLocalizedDescriptionKey: "\(executable) exited \(process.terminationStatus): \(errStr)",

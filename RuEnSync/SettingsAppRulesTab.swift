@@ -70,11 +70,9 @@ private struct AppRuleRow: View {
     @State private var matchKind: MatchKind = .exact
     @FocusState private var bundleFocused: Bool
 
+    @ViewBuilder
     var body: some View {
-        guard let rule = (model.config.appLayoutRules ?? [])[safe: index] else {
-            return AnyView(EmptyView())
-        }
-        return AnyView(
+        if let rule = (model.config.appLayoutRules ?? [])[safe: index] {
             HStack(spacing: 8) {
                 Picker("", selection: $matchKind) {
                     Text("Exact").tag(MatchKind.exact)
@@ -130,7 +128,7 @@ private struct AppRuleRow: View {
             .padding(.vertical, 2)
             .onAppear { syncDraftFromRule(rule) }
             .onChange(of: rule) { _, newRule in syncDraftFromRule(newRule) }
-        )
+        }
     }
 
     private func syncDraftFromRule(_ rule: Config.AppLayoutRule) {

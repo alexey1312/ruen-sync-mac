@@ -82,11 +82,9 @@ private struct LayoutRow: View {
     @Bindable var model: AppModel
     let index: Int
 
+    @ViewBuilder
     var body: some View {
-        guard let suffix = model.config.layouts[safe: index] else {
-            return AnyView(EmptyView())
-        }
-        return AnyView(
+        if let suffix = model.config.layouts[safe: index] {
             HStack(spacing: 12) {
                 Text("idx \(index)")
                     .font(.caption.monospaced())
@@ -127,7 +125,7 @@ private struct LayoutRow: View {
                 .disabled(model.config.layouts.count <= 1)
             }
             .padding(.vertical, 2)
-        )
+        }
     }
 
     private func moveUp() {

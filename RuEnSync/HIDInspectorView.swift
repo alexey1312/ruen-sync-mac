@@ -106,6 +106,22 @@ private struct WindowConfigurator: NSViewRepresentable {
 private struct PacketRow: View {
     let entry: HIDPacketEntry
 
+    /// Cached formatter — `DateFormatter` allocation is ~tens of µs and
+    /// keeps the per-row cost flat regardless of how many packets the
+    /// inspector is rendering. Static so every PacketRow instance shares
+    /// the same configured formatter.
+    private static let timestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
+    /// Pure static formatter — exposed for testability and so the row's
+    /// `timestamp` computed property stays a one-liner.
+    static func formatTimestamp(_ date: Date) -> String {
+        timestampFormatter.string(from: date)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
@@ -136,9 +152,7 @@ private struct PacketRow: View {
     }
 
     private var timestamp: String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss.SSS"
-        return f.string(from: entry.timestamp)
+        Self.formatTimestamp(entry.timestamp)
     }
 
     /// Two-line hex dump: 16 bytes per row, mirrors `hexdump -C` style minus

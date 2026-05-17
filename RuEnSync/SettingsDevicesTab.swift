@@ -57,11 +57,9 @@ private struct DeviceRow: View {
     @State private var nameDraft: String = ""
     @FocusState private var nameFocused: Bool
 
+    @ViewBuilder
     var body: some View {
-        guard let device = model.config.devices[safe: index] else {
-            return AnyView(EmptyView())
-        }
-        return AnyView(
+        if let device = model.config.devices[safe: index] {
             HStack(spacing: 8) {
                 TextField("Device name", text: $nameDraft)
                     .textFieldStyle(.roundedBorder)
@@ -86,7 +84,7 @@ private struct DeviceRow: View {
             .padding(.vertical, 2)
             .onAppear { nameDraft = device.name }
             .onChange(of: device) { _, newDevice in nameDraft = newDevice.name }
-        )
+        }
     }
 
     private func commitName() {
