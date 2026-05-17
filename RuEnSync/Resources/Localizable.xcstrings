@@ -1,0 +1,417 @@
+{
+  "sourceLanguage" : "en",
+  "version" : "1.0",
+  "strings" : {
+    "%@ — %@" : {
+      "comment" : "Device status row: name — lowercased reason. Both pieces are already localized; this is a layout-only format.",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ — %2$@"
+          }
+        }
+      }
+    },
+    "%@ → %@" : {
+      "comment" : "Activity log: per-app layout override (bundleId → layoutName).",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ → %2$@"
+          }
+        }
+      }
+    },
+    "%@ connected" : {
+      "comment" : "Activity log: device connected.",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ подключено"
+          }
+        }
+      }
+    },
+    "%@ — connected" : {
+      "comment" : "Menubar dropdown row when the device is connected.",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — подключено"
+          }
+        }
+      }
+    },
+    "%@ disconnected — %@" : {
+      "comment" : "Activity log: device disconnected with reason.",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ отключено — %2$@"
+          }
+        }
+      }
+    },
+    "%lld of %lld connected" : {
+      "comment" : "Aggregate status for multiple devices.",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключено: %1$lld из %2$lld"
+          }
+        }
+      }
+    },
+    "%@, no device connected" : {
+      "comment" : "Menubar accessibility label when offline.",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, устройство не подключено"
+          }
+        }
+      }
+    },
+    "Activity (%lld)" : {
+      "comment" : "Menubar submenu showing activity count.",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Журнал (%lld)"
+          }
+        }
+      }
+    },
+    "Auto-switch by app" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переключать по приложению"
+          }
+        }
+      }
+    },
+    "Check for Updates…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверить обновления…"
+          }
+        }
+      }
+    },
+    "Clear" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Очистить"
+          }
+        }
+      }
+    },
+    "Clear activity" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Очистить журнал"
+          }
+        }
+      }
+    },
+    "Config reloaded" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Конфигурация перечитана"
+          }
+        }
+      }
+    },
+    "Debug" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отладка"
+          }
+        }
+      }
+    },
+    "Device busy (qmk-hid-host running?)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Устройство занято (запущен qmk-hid-host?)"
+          }
+        }
+      }
+    },
+    "Enable inspection in config.json:" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включите инспекцию в config.json:"
+          }
+        }
+      }
+    },
+    "Export diagnostics…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспортировать диагностику…"
+          }
+        }
+      }
+    },
+    "HID Inspector" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Инспектор HID"
+          }
+        }
+      }
+    },
+    "HID Inspector…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Инспектор HID…"
+          }
+        }
+      }
+    },
+    "HID manager open failed (%@)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ошибка открытия HID-менеджера (%@)"
+          }
+        }
+      }
+    },
+    "Layout → %@" : {
+      "comment" : "Activity log: layout switched.",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Раскладка → %@"
+          }
+        }
+      }
+    },
+    "Layout: %@" : {
+      "comment" : "Menubar: current layout label.",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Раскладка: %@"
+          }
+        }
+      }
+    },
+    "MAC handshake → %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рукопожатие MAC → %@"
+          }
+        }
+      }
+    },
+    "MAC handshake failed → %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рукопожатие MAC не удалось → %@"
+          }
+        }
+      }
+    },
+    "No activity yet" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Журнал пуст"
+          }
+        }
+      }
+    },
+    "No device configured" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Устройство не настроено"
+          }
+        }
+      }
+    },
+    "No packets recorded yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пакеты пока не записаны."
+          }
+        }
+      }
+    },
+    "Not connected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не подключено"
+          }
+        }
+      }
+    },
+    "Open config…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть конфигурацию…"
+          }
+        }
+      }
+    },
+    "Open failed (%@)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ошибка открытия (%@)"
+          }
+        }
+      }
+    },
+    "Open log…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть журнал…"
+          }
+        }
+      }
+    },
+    "Paused — %@ is running" : {
+      "comment" : "Menubar: yielded to a conflicting app (Vial / QMK Toolbox).",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пауза — запущено %@"
+          }
+        }
+      }
+    },
+    "Product ID: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Product ID: %@"
+          }
+        }
+      }
+    },
+    "Quit RuEnSync" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выйти из RuEnSync"
+          }
+        }
+      }
+    },
+    "Reconnect" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переподключить"
+          }
+        }
+      }
+    },
+    "Reconnect triggered" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запущено переподключение"
+          }
+        }
+      }
+    },
+    "Resume anyway" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Всё равно возобновить"
+          }
+        }
+      }
+    },
+    "Resumed after %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Возобновлено после %@"
+          }
+        }
+      }
+    },
+    "RuEnSync released the keyboard so %@ can use it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RuEnSync освободил клавиатуру, чтобы её мог использовать %@."
+          }
+        }
+      }
+    },
+    "Yielded to %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уступлено приложению %@"
+          }
+        }
+      }
+    }
+  }
+}

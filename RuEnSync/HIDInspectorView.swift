@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - HIDInspectorView
@@ -6,6 +7,11 @@ import SwiftUI
 /// Re-renders only when `packetLog.entries` changes — the `@Bindable` macro
 /// from Observation makes the @Observable class observable in SwiftUI without
 /// `@StateObject` or `@ObservedObject`.
+///
+/// The window stays above other apps (`NSWindow.Level.floating`) so users
+/// can keep it visible while testing keyboard sync in another app —
+/// otherwise switching focus to Notes/Xcode hides the inspector and
+/// defeats the point of watching live packets.
 struct HIDInspectorView: View {
     @Bindable var packetLog: HIDPacketLog
 
@@ -26,6 +32,15 @@ struct HIDInspectorView: View {
             }
         }
         .frame(minWidth: 540, minHeight: 360)
+        .background(
+            // NSViewRepresentable hop to reach the hosting NSWindow.
+            // SwiftUI's WindowGroup doesn't expose `level` declaratively
+            // before macOS 15, so we set it on first appearance.
+            WindowConfigurator { window in
+                window.level = .floating
+                window.collectionBehavior.insert(.canJoinAllSpaces)
+            }
+        )
     }
 
     private var header: some View {
@@ -62,6 +77,28 @@ struct HIDInspectorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(32)
     }
+}
+
+// MARK: - WindowConfigurator
+
+/// SwiftUI ↔ AppKit bridge: gets a callback once the hosting NSWindow exists
+/// so we can tweak properties (level, collectionBehavior) that aren't yet
+/// surfaced as SwiftUI modifiers. The async hop is necessary because
+/// `makeNSView` runs before the view is mounted into a window.
+private struct WindowConfigurator: NSViewRepresentable {
+    let configure: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            if let window = view.window {
+                configure(window)
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 // MARK: - Row

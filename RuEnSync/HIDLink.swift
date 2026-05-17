@@ -330,17 +330,18 @@ extension HIDLink {
 
 extension HIDLink.OfflineReason {
     /// Human-readable label for the menubar. Kept short — surfaces in a
-    /// secondary-color caption row, not a sentence.
+    /// secondary-color caption row, not a sentence. Localized via the
+    /// String catalog so non-English macOS users get a native label.
     var menuLabel: String {
         switch self {
         case .awaitingDevice:
-            "Not connected"
+            String(localized: "Not connected")
         case .exclusiveAccess:
-            "Device busy (qmk-hid-host running?)"
+            String(localized: "Device busy (qmk-hid-host running?)")
         case let .openFailed(code):
-            "Open failed (\(String(format: "0x%08X", code)))"
+            String(localized: "Open failed (\(String(format: "0x%08X", code)))")
         case let .managerOpenFailed(code):
-            "HID manager open failed (\(String(format: "0x%08X", code)))"
+            String(localized: "HID manager open failed (\(String(format: "0x%08X", code)))")
         }
     }
 

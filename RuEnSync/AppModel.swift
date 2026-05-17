@@ -322,7 +322,7 @@ extension AppModel {
     /// Pure, testable formatter for the aggregate status line.
     static func describe(_ statuses: [DeviceStatus]) -> String {
         if statuses.isEmpty {
-            return "No device configured"
+            return String(localized: "No device configured")
         }
         if statuses.count == 1, let status = statuses.first {
             return status.summary
@@ -331,18 +331,25 @@ extension AppModel {
             if case .connected = $0.state { return true }
             return false
         })
-        return "\(connectedCount) of \(statuses.count) connected"
+        return String(localized: "\(connectedCount) of \(statuses.count) connected")
     }
 }
 
 extension AppModel.DeviceStatus {
     /// e.g. "Corne — connected" / "Corne — device busy (qmk-hid-host running?)".
+    /// The "connected" path is plain English even in the localized catalog
+    /// because most users see the device name there ("Corne", a proper noun)
+    /// and adding a "%@ — подключено" form is consistent with the activity
+    /// log's "%@ connected" entry — both reuse the same catalog string.
     var summary: String {
         switch state {
         case .connected:
-            "\(name) — connected"
+            // Distinct from the activity log's "%@ connected" — this is the
+            // dropdown row, which uses the "%@ — connected" separator for
+            // visual consistency with the offline variant below.
+            String(localized: "\(name) — connected", comment: "Menubar dropdown row, connected")
         case let .offline(reason):
-            "\(name) — \(reason.menuLabel.lowercasedFirstLetter())"
+            String(localized: "\(name) — \(reason.menuLabel.lowercasedFirstLetter())")
         }
     }
 

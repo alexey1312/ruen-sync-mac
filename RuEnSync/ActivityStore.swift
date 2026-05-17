@@ -39,19 +39,34 @@ enum ActivityKind: Equatable {
     }
 
     /// Short headline shown in the activity row. Single sentence, no period.
+    /// Localized via the String catalog. Interpolated values keep their
+    /// position with explicit `%1$@` / `%2$@` placeholders in Russian to
+    /// preserve word order (Russian places the subject before "connected"
+    /// but after "Resumed after", etc. — see the catalog).
     var headline: String {
         switch self {
-        case let .layoutChanged(label): "Layout → \(label)"
-        case let .deviceConnected(name): "\(name) connected"
-        case let .deviceDisconnected(name, reason): "\(name) disconnected — \(reason.lowercasedFirstLetter())"
-        case let .deviceOfflineReasonChanged(name, reason): "\(name) — \(reason.lowercasedFirstLetter())"
-        case let .osHandshakeSent(name): "MAC handshake → \(name)"
-        case let .osHandshakeFailed(name): "MAC handshake failed → \(name)"
-        case .reconnectTriggered: "Reconnect triggered"
-        case let .yieldedToApp(name): "Yielded to \(name)"
-        case let .resumedAfterApp(name): "Resumed after \(name)"
-        case let .appLayoutOverride(bundleId, layoutName): "\(bundleId) → \(layoutName)"
-        case .configReloaded: "Config reloaded"
+        case let .layoutChanged(label):
+            String(localized: "Layout → \(label)")
+        case let .deviceConnected(name):
+            String(localized: "\(name) connected")
+        case let .deviceDisconnected(name, reason):
+            String(localized: "\(name) disconnected — \(reason.lowercasedFirstLetter())")
+        case let .deviceOfflineReasonChanged(name, reason):
+            String(localized: "\(name) — \(reason.lowercasedFirstLetter())")
+        case let .osHandshakeSent(name):
+            String(localized: "MAC handshake → \(name)")
+        case let .osHandshakeFailed(name):
+            String(localized: "MAC handshake failed → \(name)")
+        case .reconnectTriggered:
+            String(localized: "Reconnect triggered")
+        case let .yieldedToApp(name):
+            String(localized: "Yielded to \(name)")
+        case let .resumedAfterApp(name):
+            String(localized: "Resumed after \(name)")
+        case let .appLayoutOverride(bundleId, layoutName):
+            String(localized: "\(bundleId) → \(layoutName)")
+        case .configReloaded:
+            String(localized: "Config reloaded")
         }
     }
 }
