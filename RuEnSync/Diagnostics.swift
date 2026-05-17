@@ -214,7 +214,7 @@ enum Diagnostics {
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
-        let model = (try? await runShell("/usr/sbin/sysctl", arguments: ["-n", "hw.model"])) ?? "?"
+        let model = await (try? runShell("/usr/sbin/sysctl", arguments: ["-n", "hw.model"])) ?? "?"
         let lines = [
             "RuEnSync \(appVersion) (\(appBuild))",
             "macOS \(osVersion)",

@@ -57,7 +57,6 @@ private struct DeviceRow: View {
     @State private var nameDraft: String = ""
     @FocusState private var nameFocused: Bool
 
-    @ViewBuilder
     var body: some View {
         if let device = model.config.devices[safe: index] {
             HStack(spacing: 8) {

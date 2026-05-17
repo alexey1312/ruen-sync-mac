@@ -82,7 +82,6 @@ private struct LayoutRow: View {
     @Bindable var model: AppModel
     let index: Int
 
-    @ViewBuilder
     var body: some View {
         if let suffix = model.config.layouts[safe: index] {
             HStack(spacing: 12) {

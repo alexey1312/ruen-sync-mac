@@ -70,7 +70,6 @@ private struct AppRuleRow: View {
     @State private var matchKind: MatchKind = .exact
     @FocusState private var bundleFocused: Bool
 
-    @ViewBuilder
     var body: some View {
         if let rule = (model.config.appLayoutRules ?? [])[safe: index] {
             HStack(spacing: 8) {

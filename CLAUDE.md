@@ -262,10 +262,10 @@ Or open the generated workspace in Xcode and ⌘R.
   `os.Logger` API with `privacy:` annotations on interpolated values.
 - SwiftUI row views that need a `guard let` against an array-index lookup
   (e.g. `model.config.devices[safe: index]`) should use `@ViewBuilder var body`
-  + `if let`, NOT `AnyView(EmptyView()) / AnyView(HStack{…})`. The `AnyView`
-  form erases types and disables SwiftUI's view-update fast path; we fixed
-  three copies in `SettingsAppRulesTab` / `SettingsDevicesTab` /
-  `SettingsLayoutsTab` during the feat/auto-yield review pass.
+  - `if let`, NOT `AnyView(EmptyView()) / AnyView(HStack{…})`. The `AnyView`
+    form erases types and disables SwiftUI's view-update fast path; we fixed
+    three copies in `SettingsAppRulesTab` / `SettingsDevicesTab` /
+    `SettingsLayoutsTab` during the feat/auto-yield review pass.
 
 ### Tests and persistent state
 
