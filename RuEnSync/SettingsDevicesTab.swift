@@ -7,22 +7,22 @@ struct SettingsDevicesTab: View {
     @State private var showScan = false
 
     var body: some View {
-        VStack(alignment: .leading) {
-            Text("Configured devices")
-                .font(.headline)
-                .padding(.bottom, 4)
+        VStack(alignment: .leading, spacing: 0) {
+            DSTabHeader(
+                title: "Configured devices",
+                subtitle: "Keyboards RuEnSync watches for sync events."
+            ) {
+                Button {
+                    showScan = true
+                } label: {
+                    Label("Scan…", systemImage: "magnifyingglass")
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut("r")
+            }
 
             if model.config.devices.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "keyboard.badge.ellipsis")
-                        .imageScale(.large)
-                        .foregroundStyle(.secondary)
-                    Text("No devices configured.")
-                    Text("Plug in your keyboard and tap *Scan…* to add it.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                emptyState
             } else {
                 List {
                     ForEach(model.config.devices.indices, id: \.self) { idx in
@@ -32,17 +32,37 @@ struct SettingsDevicesTab: View {
                 .listStyle(.bordered)
                 .frame(maxHeight: .infinity)
             }
-
-            HStack {
-                Spacer()
-                Button("Scan…") { showScan = true }
-                    .keyboardShortcut("r")
-            }
         }
-        .padding()
+        .padding(16)
         .sheet(isPresented: $showScan) {
             ScanSheet(model: model, isPresented: $showScan)
         }
+    }
+
+    /// Empty state — only seen when the user has explicitly removed every
+    /// device (or the very first launch where auto-discovery found nothing).
+    /// Big, centred call-to-action rather than a thin secondary line.
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "keyboard.badge.ellipsis")
+                .font(.system(size: 40, weight: .regular))
+                .foregroundStyle(.secondary)
+            Text("No devices configured")
+                .font(.headline)
+            Text("Plug your keyboard in and tap **Scan…** to add it.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button {
+                showScan = true
+            } label: {
+                Label("Scan for keyboards", systemImage: "magnifyingglass")
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
     }
 }
 
@@ -59,7 +79,10 @@ private struct DeviceRow: View {
 
     var body: some View {
         if let device = model.config.devices[safe: index] {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
+                StatusDot(tint: dotTint(for: device))
+                    .help(dotHelp(for: device))
+
                 TextField("Device name", text: $nameDraft)
                     .textFieldStyle(.roundedBorder)
                     .focused($nameFocused)
@@ -70,8 +93,8 @@ private struct DeviceRow: View {
 
                 Text(device.productId)
                     .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 60, alignment: .trailing)
+                    .dsCapsule(tone: .muted, horizontalPadding: 6)
+                    .frame(minWidth: 64, alignment: .trailing)
 
                 Button(role: .destructive) {
                     model.editConfig { $0.devices.remove(at: index) }
@@ -79,10 +102,46 @@ private struct DeviceRow: View {
                     Image(systemName: "minus.circle")
                 }
                 .buttonStyle(.borderless)
+                .help("Remove device")
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 4)
             .onAppear { nameDraft = device.name }
             .onChange(of: device) { _, newDevice in nameDraft = newDevice.name }
+        }
+    }
+
+    /// Resolves the row's live link state by matching the config row's
+    /// productId hex against `model.deviceStatuses`. Matching by pid
+    /// rather than array index keeps us robust when an unparseable
+    /// device in config has been silently filtered out of
+    /// deviceStatuses (which would otherwise misalign the indices).
+    private func liveStatus(for device: Config.Device) -> HIDLink.State? {
+        guard let pid = ResolvedDevice.parseHex(device.productId) else { return nil }
+        return model.deviceStatuses.first { $0.productId == pid }?.state
+    }
+
+    private func dotTint(for device: Config.Device) -> StatusDot.Tint {
+        guard let state = liveStatus(for: device) else { return .unknown }
+        switch state {
+        case .connected:
+            return .ok
+        case let .offline(reason):
+            switch reason {
+            case .awaitingDevice, .exclusiveAccess:
+                return .warn
+            case .openFailed, .managerOpenFailed:
+                return .bad
+            }
+        }
+    }
+
+    private func dotHelp(for device: Config.Device) -> String {
+        guard let state = liveStatus(for: device) else { return String(localized: "Unknown status") }
+        switch state {
+        case .connected:
+            return String(localized: "Connected")
+        case let .offline(reason):
+            return reason.menuLabel
         }
     }
 
@@ -113,22 +172,25 @@ private struct ScanSheet: View {
     @State private var discovered: [DiscoveredDevice] = []
 
     var body: some View {
-        VStack(alignment: .leading) {
-            HStack {
-                Text("Discovered keyboards")
-                    .font(.headline)
-                Spacer()
-                Button("Rescan") { rescan() }
+        VStack(alignment: .leading, spacing: 0) {
+            DSTabHeader(
+                title: "Discovered keyboards",
+                subtitle: "UsagePage 0xFF60 / Usage 0x61 — QMK Raw HID interface."
+            ) {
+                Button {
+                    rescan()
+                } label: {
+                    Label("Rescan", systemImage: "arrow.clockwise")
+                }
             }
 
-            Divider()
-
             if discovered.isEmpty {
-                VStack(spacing: 6) {
+                VStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
-                        .imageScale(.large)
+                        .font(.system(size: 32, weight: .regular))
                         .foregroundStyle(.secondary)
                     Text("No QMK Raw HID keyboards detected.")
+                        .font(.headline)
                     Text(
                         "Confirm the keyboard is plugged in and that the firmware exposes UsagePage 0xFF60 / Usage 0x61."
                     )
@@ -138,6 +200,7 @@ private struct ScanSheet: View {
                     .frame(maxWidth: 360)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.vertical, 24)
             } else {
                 List(discovered) { device in
                     ScanRow(device: device, model: model)
@@ -149,10 +212,12 @@ private struct ScanSheet: View {
                 Spacer()
                 Button("Done") { isPresented = false }
                     .keyboardShortcut(.cancelAction)
+                    .buttonStyle(.borderedProminent)
             }
+            .padding(.top, 12)
         }
-        .padding()
-        .frame(width: 460, height: 340)
+        .padding(16)
+        .frame(width: 480, height: 360)
         .onAppear { rescan() }
     }
 
@@ -166,22 +231,37 @@ private struct ScanRow: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading) {
+        HStack(spacing: 10) {
+            Image(systemName: "keyboard")
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(device.displayName)
-                Text("\(device.productIdHex) — \(device.manufacturer ?? "Unknown")")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                    .font(.body.weight(.medium))
+                HStack(spacing: 6) {
+                    Text(device.productIdHex)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("·")
+                        .foregroundStyle(.secondary)
+                    Text(device.manufacturer ?? "Unknown")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
             if alreadyConfigured {
-                Text("Added").foregroundStyle(.secondary).font(.caption)
+                Label("Added", systemImage: "checkmark")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption.weight(.medium))
+                    .dsCapsule(tone: .muted, horizontalPadding: 8, verticalPadding: 4)
             } else {
                 Button("Add") { addDevice() }
                     .buttonStyle(.borderedProminent)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 
     private var alreadyConfigured: Bool {

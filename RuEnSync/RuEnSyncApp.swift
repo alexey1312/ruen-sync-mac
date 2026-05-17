@@ -117,15 +117,13 @@ private struct MenuLabel: View {
         }
     }
 
-    /// Hand-tuned colours, NOT system `.red`/`.blue`. See goal (1) on
-    /// `MenuLabel`. Light/dark menubar both work because the pill sits on
-    /// top of the menubar's blur, not on raw white/black.
+    /// Hand-tuned colours from `DSColor`. Light/dark menubar both work
+    /// because the pill sits on top of the menubar's blur, not on raw
+    /// white/black. The shared palette ensures the menubar pill, the
+    /// `IndexBadge` in Settings, and the HID Inspector LAYOUT tag all
+    /// agree on the EN/RU hue.
     private var baseColor: Color {
-        switch model.layoutIndex {
-        case .some(0): Color(red: 0.35, green: 0.60, blue: 0.98) // calm Apple-blue
-        case .some: Color(red: 0.92, green: 0.42, blue: 0.42) // warm coral
-        case .none: .secondary
-        }
+        Color.dsAccent(forLayoutIndex: model.layoutIndex)
     }
 
     /// Online: white glyph for guaranteed contrast against the saturated

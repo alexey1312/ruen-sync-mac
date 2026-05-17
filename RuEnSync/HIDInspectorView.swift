@@ -44,35 +44,58 @@ struct HIDInspectorView: View {
     }
 
     private var header: some View {
-        HStack {
-            Text("HID Inspector")
-                .font(.headline)
+        HStack(spacing: 10) {
+            Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("HID Inspector")
+                    .font(.headline)
+                Text("Live capture of outgoing 32-byte reports.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
-            Text("\(packetLog.entries.count) / \(packetLog.capacity)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-            Button("Clear") {
+            // Capacity meter rendered as "used / cap" with a tiny progress
+            // bar so the user sees the ring buffer filling up rather than
+            // staring at a flat number.
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(packetLog.entries.count) / \(packetLog.capacity)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                ProgressView(value: Double(packetLog.entries.count), total: Double(max(packetLog.capacity, 1)))
+                    .progressViewStyle(.linear)
+                    .frame(width: 80)
+                    .controlSize(.mini)
+            }
+            Button {
                 packetLog.clear()
+            } label: {
+                Label("Clear", systemImage: "trash")
             }
             .disabled(packetLog.entries.isEmpty)
         }
-        .padding(8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 
     private var emptyState: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "waveform")
-                .imageScale(.large)
+        VStack(spacing: 12) {
+            Image(systemName: "waveform.path")
+                .font(.system(size: 40, weight: .regular))
                 .foregroundStyle(.secondary)
-            Text("No packets recorded yet.")
-                .font(.body)
-            Text("Enable inspection in config.json:")
-                .font(.caption)
+            Text("No packets recorded yet")
+                .font(.headline)
+            Text("Toggle *Settings → Debug → Record HID writes* on, then trigger a layout switch.")
+                .font(.callout)
                 .foregroundStyle(.secondary)
-            Text(#"  "debug": { "hidInspector": true }"#)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+            Text(#"or set "debug": { "hidInspector": true } in config.json"#)
                 .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
                 .textSelection(.enabled)
+                .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(32)
@@ -123,28 +146,69 @@ private struct PacketRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(entry.deviceName)
-                    .font(.system(.body, design: .rounded).weight(.semibold))
-                Text(productLabel)
-                    .font(.caption.monospaced())
+        HStack(alignment: .top, spacing: 10) {
+            dataTypeBadge
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(entry.deviceName)
+                        .font(.system(.body, design: .rounded).weight(.semibold))
+                    Text(productLabel)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(timestamp)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Text(entry.interpretation)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                Text(hexDump)
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
-                Spacer()
-                Text(timestamp)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
             }
-            Text(entry.interpretation)
-                .font(.caption)
-                .foregroundStyle(.primary)
-            Text(hexDump)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .textSelection(.enabled)
         }
+        .padding(.vertical, 6)
+    }
+
+    /// Capsule badge showing the data_type byte in hex with a hue that
+    /// categorises the packet at-a-glance. Saves the user from parsing
+    /// the leading hex pair on every row.
+    private var dataTypeBadge: some View {
+        let (label, color) = categorise()
+        return VStack(spacing: 2) {
+            Text(String(format: "0x%02X", entry.bytes.first ?? 0))
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(color)
+            Text(label)
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(color.opacity(0.85))
+        }
+        .frame(width: 44)
         .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(color.opacity(0.14))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(color.opacity(0.30), lineWidth: 1)
+        )
+    }
+
+    /// Map the data_type byte to (short label, accent colour). LAYOUT
+    /// packets are by far the most frequent — calm blue mirrors the
+    /// EN pill. OS handshake is rare and important — same green as the
+    /// "connected" status dot. Anything else stands out as not-typical.
+    private func categorise() -> (String, Color) {
+        switch entry.bytes.first {
+        case 0xAC: ("LAYOUT", .dsAccentENBadge)
+        case 0xB0: ("OS", .dsOk)
+        default: ("?", .secondary)
+        }
     }
 
     private var productLabel: String {

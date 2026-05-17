@@ -37,12 +37,48 @@ RuEnSync/
 ├── ConfigStore.swift       ~/.config/RuEnSync/config.json loader + LayoutResolver
 ├── LoginItem.swift         SMAppService.mainApp register/unregister
 ├── Logger.swift            os.Logger subsystem wrappers (Log.layout, Log.hid, …)
+├── DesignSystem/           Shared UI primitives — palette, capsules, badges
 └── RuEnSync.entitlements   Empty — IOKit/TIS work outside the sandbox
 RuEnSyncTests/              Swift Testing suite (NOT XCTest)
 Scripts/
 ├── notarize.sh             codesign + notarytool + stapler + DMG
 └── build-release.sh        End-to-end: clean → build → notarize → DMG
 ```
+
+## Design system
+
+UI primitives shared across screens live in `RuEnSync/DesignSystem/`. **Do
+not hand-roll capsules, status dots, card backgrounds, or tab headers
+inline** — use the DS so the EN/RU colour story, capsule rhythm, and
+rounded-corner conventions stay consistent.
+
+| Primitive                               | File                  | When to use                                           |
+| --------------------------------------- | --------------------- | ----------------------------------------------------- |
+| `Color.dsAccentEN/RU`                   | `DSColor.swift`       | Layout-index-derived tints; mirrors the menubar pill  |
+| `Color.dsAccentENBadge/RUBadge`         | `DSColor.swift`       | Tinted capsule fills (slightly darker than pill hue)  |
+| `Color.dsOk/dsWarn/dsBad/dsUnknown`     | `DSColor.swift`       | Semantic status colours                               |
+| `Color.dsAccent(forLayoutIndex:)`       | `DSColor.swift`       | `nil`-safe lookup used by `MenuLabel` and friends     |
+| `.dsCapsule(tone:)`                     | `DSCapsule.swift`     | Inline pill backgrounds — see `DSCapsuleTone` cases   |
+| `StatusDot(tint:)`                      | `StatusDot.swift`     | Device-connection state in lists / rows               |
+| `IndexBadge(index:)`                    | `IndexBadge.swift`    | Firmware layout-index column in row leading slot      |
+| `DSCard { }` modifier                   | `DSCard.swift`        | Empty-state / banner / example containers with border |
+| `DSTabHeader(title:subtitle:trailing:)` | `DSTabHeader.swift`   | Settings tab masthead (title + subtitle + action)     |
+| `DSErrorBanner(text:onDismiss:)`        | `DSErrorBanner.swift` | Recoverable error surfaces above content              |
+
+**Palette is hand-tuned, not semantic.** The exact RGB values in
+`DSColor` are load-bearing: the menubar `MenuLabel` pill, the
+`IndexBadge` in Settings → Layouts, the `StatusDot` on Device rows, and
+the LAYOUT tag in HID Inspector all draw from the same constants so EN
+intuition (blue) ↔ RU intuition (coral) ↔ healthy intuition (green)
+carries unchanged between surfaces. When extending: add a new
+`dsXxx` constant rather than introducing a raw `Color(red:green:blue:)`
+literal at a call site. A naming collision with the system palette
+(`Color.green` etc.) is deliberate — it forces grep-ability.
+
+`SwiftUI.Color` extensions on `DSColor.swift` are NOT `nonisolated` —
+they don't need to be, `Color` is `Sendable` and the static lets are
+plain value-typed initialisers. If you ever wrap them in a
+`@MainActor` type (don't), see note 1 about static-isolation propagation.
 
 ## Critical architectural notes (DO NOT FORGET — these will bite)
 

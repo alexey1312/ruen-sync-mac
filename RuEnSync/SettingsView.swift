@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - SettingsView
@@ -16,9 +17,11 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let errorText = model.lastSettingsError {
-                SettingsErrorBanner(text: errorText) {
+                DSErrorBanner(text: errorText) {
                     model.lastSettingsError = nil
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
             }
             TabView {
                 GeneralTab(model: model)
@@ -37,35 +40,7 @@ struct SettingsView: View {
                     .tabItem { Label("Debug", systemImage: "ladybug") }
             }
         }
-        .frame(width: 560, height: 400)
-    }
-}
-
-/// Inline banner above the tabs. Surfaces `AppModel.lastSettingsError` —
-/// save failures, corrupt-config-detected, etc. — so the user can react
-/// without trawling Console. Dismissible: the user clears the error once
-/// they've seen it.
-private struct SettingsErrorBanner: View {
-    let text: String
-    let onDismiss: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-            Text(text)
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer()
-            Button(action: onDismiss) {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.borderless)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.orange.opacity(0.12))
+        .frame(width: 620, height: 460)
     }
 }
 
@@ -77,6 +52,12 @@ private struct GeneralTab: View {
 
     var body: some View {
         Form {
+            Section {
+                AboutCard()
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+
             Section("Startup") {
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, newValue in
@@ -107,14 +88,63 @@ private struct GeneralTab: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
-
-            Section("About") {
-                LabeledContent("Version", value: Self.versionLabel)
-                LabeledContent("Bundle", value: Bundle.main.bundleIdentifier ?? "?")
-            }
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
+    }
+}
+
+/// Hero card at the top of General. Replaces a flat "Version / Bundle"
+/// LabeledContent pair with a visually anchored identity block: app icon,
+/// product name, tagline, and the version/bundle stamped as metadata
+/// underneath. Gives the Settings window a recognisable masthead and makes
+/// the version far more glanceable than buried in a Form row.
+private struct AboutCard: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            // NSImage(named: NSImage.applicationIconName) returns the real
+            // app icon at the requested size; we render it via Image to keep
+            // it crisp on Retina.
+            if let icon = NSImage(named: NSImage.applicationIconName) {
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 56, height: 56)
+            } else {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.tertiary)
+                    .frame(width: 56, height: 56)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("RuEnSync")
+                    .font(.title3.weight(.semibold))
+                Text("Keeps your QMK keyboard's `cur_lang` in sync with macOS.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 6) {
+                    versionBadge
+                    bundleBadge
+                }
+                .padding(.top, 2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+    }
+
+    private var versionBadge: some View {
+        Text(Self.versionLabel)
+            .font(.caption.monospacedDigit())
+            .dsCapsule(tone: .accent)
+    }
+
+    private var bundleBadge: some View {
+        Text(Bundle.main.bundleIdentifier ?? "?")
+            .font(.caption2.monospaced())
+            .dsCapsule(tone: .muted)
     }
 
     /// "1.0.0 (42)" — short version + build number. Falls back gracefully
@@ -170,6 +200,6 @@ private struct DebugTab: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
     }
 }

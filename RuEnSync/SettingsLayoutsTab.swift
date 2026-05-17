@@ -11,16 +11,11 @@ struct SettingsLayoutsTab: View {
     @State private var addPickerSelection: String = ""
 
     var body: some View {
-        VStack(alignment: .leading) {
-            Text("Keyboard layouts")
-                .font(.headline)
-            Text(
-                "The order here matches the byte sent to the keyboard. Firmware treats index 0 as English and any other index as Russian."
+        VStack(alignment: .leading, spacing: 0) {
+            DSTabHeader(
+                title: "Keyboard layouts",
+                subtitle: "Index 0 is English to the firmware; anything else is Russian. Drag to reorder."
             )
-            // swiftlint:disable:previous line_length
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.bottom, 4)
 
             List {
                 ForEach(model.config.layouts.indices, id: \.self) { idx in
@@ -33,28 +28,36 @@ struct SettingsLayoutsTab: View {
             .listStyle(.bordered)
 
             addBar
+                .padding(.top, 12)
         }
-        .padding()
+        .padding(16)
     }
 
     /// Picker over enabled macOS input sources NOT already in config.layouts.
-    /// Manual entry via TextField for layouts that aren't currently enabled
-    /// (e.g. Russian Phonetic the user wants to pre-configure before
-    /// installing it in System Settings).
+    /// The "Choose…" placeholder is rendered as a tag so the Picker has a
+    /// resting state without a selection. Add button is borderedProminent
+    /// — it's the primary affordance on this tab once a candidate is picked.
     private var addBar: some View {
-        HStack {
+        HStack(spacing: 8) {
+            Image(systemName: "plus.circle.fill")
+                .foregroundStyle(.tint)
             Picker("Add layout", selection: $addPickerSelection) {
-                Text("Choose…").tag("")
+                Text("Choose a system input source…").tag("")
                 ForEach(addCandidates, id: \.self) { suffix in
                     Text("\(suffix) — \(InputSourceList.displayName(for: suffix))").tag(suffix)
                 }
             }
-            .frame(maxWidth: 280)
+            .labelsHidden()
+            .frame(maxWidth: 320)
 
-            Button("Add") {
+            Button {
                 addLayout(addPickerSelection)
                 addPickerSelection = ""
+            } label: {
+                Text("Add")
+                    .frame(minWidth: 50)
             }
+            .buttonStyle(.borderedProminent)
             .disabled(addPickerSelection.isEmpty)
 
             Spacer()
@@ -84,17 +87,25 @@ private struct LayoutRow: View {
 
     var body: some View {
         if let suffix = model.config.layouts[safe: index] {
-            HStack(spacing: 12) {
-                Text("idx \(index)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 50, alignment: .leading)
+            HStack(spacing: 10) {
+                // Grip-handle. Drag affordance is implicit on List rows when
+                // `.onMove` is present, but users don't always discover it.
+                // The handle icon hints "you can drag me by this column".
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 14)
 
-                Text(suffix)
-                    .font(.body.monospaced())
+                IndexBadge(index: index)
 
-                Text("— \(InputSourceList.displayName(for: suffix))")
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(suffix)
+                        .font(.body.monospaced())
+                    Text(InputSourceList.displayName(for: suffix))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
 
                 Spacer()
 
@@ -105,15 +116,19 @@ private struct LayoutRow: View {
                     moveUp()
                 } label: {
                     Image(systemName: "arrow.up")
-                }.buttonStyle(.borderless)
-                    .disabled(index == 0)
+                }
+                .buttonStyle(.borderless)
+                .disabled(index == 0)
+                .help("Move up")
 
                 Button {
                     moveDown()
                 } label: {
                     Image(systemName: "arrow.down")
-                }.buttonStyle(.borderless)
-                    .disabled(index >= model.config.layouts.count - 1)
+                }
+                .buttonStyle(.borderless)
+                .disabled(index >= model.config.layouts.count - 1)
+                .help("Move down")
 
                 Button(role: .destructive) {
                     model.editConfig { $0.layouts.remove(at: index) }
@@ -122,8 +137,9 @@ private struct LayoutRow: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(model.config.layouts.count <= 1)
+                .help("Remove layout")
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 4)
         }
     }
 

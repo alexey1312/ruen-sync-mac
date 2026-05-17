@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - AppRulesTab
@@ -6,25 +7,22 @@ struct SettingsAppRulesTab: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading) {
-            Text("App layout rules")
-                .font(.headline)
-            Text(
-                "Match by exact bundle ID or by prefix. Exact wins over prefix; among prefixes, the longest match wins."
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.bottom, 4)
+        VStack(alignment: .leading, spacing: 0) {
+            DSTabHeader(
+                title: "App layout rules",
+                subtitle: "Exact match wins over prefix. Among prefixes, the longest match wins."
+            ) {
+                Button {
+                    addRule()
+                } label: {
+                    Label("Add rule", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+            }
 
             let rules = model.config.appLayoutRules ?? []
             if rules.isEmpty {
-                VStack(spacing: 6) {
-                    Image(systemName: "app.badge")
-                        .imageScale(.large)
-                        .foregroundStyle(.secondary)
-                    Text("No rules yet. Add one below.")
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                emptyState
             } else {
                 List {
                     ForEach(rules.indices, id: \.self) { idx in
@@ -33,20 +31,63 @@ struct SettingsAppRulesTab: View {
                 }
                 .listStyle(.bordered)
             }
-
-            HStack {
-                Spacer()
-                Button("Add rule") {
-                    model.editConfig {
-                        var list = $0.appLayoutRules ?? []
-                        let firstLayout = $0.layouts.first ?? "ABC"
-                        list.append(.exact("com.example.app", layout: firstLayout))
-                        $0.appLayoutRules = list
-                    }
-                }
-            }
         }
-        .padding()
+        .padding(16)
+    }
+
+    private func addRule() {
+        model.editConfig {
+            var list = $0.appLayoutRules ?? []
+            let firstLayout = $0.layouts.first ?? "ABC"
+            list.append(.exact("com.example.app", layout: firstLayout))
+            $0.appLayoutRules = list
+        }
+    }
+
+    /// Empty state with concrete example. Users land here without context
+    /// for what "exact / prefix bundle id" means — the example row makes the
+    /// idea tangible at a glance. Visually it sits as an inert preview card,
+    /// not a clickable affordance — the real Add button lives in the header.
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "app.badge")
+                .font(.system(size: 36, weight: .regular))
+                .foregroundStyle(.secondary)
+            Text("No rules yet")
+                .font(.headline)
+            Text("Map a bundle ID to a layout — when the app activates, RuEnSync flips macOS to that layout.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Example")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                exampleCard
+            }
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+    }
+
+    private var exampleCard: some View {
+        HStack(spacing: 8) {
+            Text("Exact")
+                .font(.caption.weight(.medium))
+                .dsCapsule(tone: .muted, horizontalPadding: 8, verticalPadding: 3)
+            Text("com.apple.Terminal")
+                .font(.body.monospaced())
+            Image(systemName: "arrow.right")
+                .foregroundStyle(.secondary)
+            Text("ABC")
+                .font(.body.monospaced())
+                .dsCapsule(tone: .accent, horizontalPadding: 8, verticalPadding: 3)
+        }
+        .padding(10)
+        .dsCard()
     }
 }
 
@@ -73,6 +114,8 @@ private struct AppRuleRow: View {
     var body: some View {
         if let rule = (model.config.appLayoutRules ?? [])[safe: index] {
             HStack(spacing: 8) {
+                appIconView
+
                 Picker("", selection: $matchKind) {
                     Text("Exact").tag(MatchKind.exact)
                     Text("Prefix").tag(MatchKind.prefix)
@@ -92,6 +135,7 @@ private struct AppRuleRow: View {
                     }
 
                 Image(systemName: "arrow.right")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Picker("", selection: Binding(
@@ -123,10 +167,34 @@ private struct AppRuleRow: View {
                     Image(systemName: "minus.circle")
                 }
                 .buttonStyle(.borderless)
+                .help("Remove rule")
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 4)
             .onAppear { syncDraftFromRule(rule) }
             .onChange(of: rule) { _, newRule in syncDraftFromRule(newRule) }
+        }
+    }
+
+    /// Resolves the system app icon for the current bundle id (when the
+    /// bundle is registered with LaunchServices). For prefix matches the
+    /// draft typically isn't a complete bundle id, so we only look up
+    /// exact-mode strings. Fallback is a neutral `app.dashed` glyph so
+    /// every row has a 22pt leading icon and the columns stay aligned.
+    @ViewBuilder
+    private var appIconView: some View {
+        if matchKind == .exact,
+           let url = NSWorkspace.shared
+           .urlForApplication(withBundleIdentifier: bundleDraft.trimmingCharacters(in: .whitespaces))
+        {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 22, height: 22)
+        } else {
+            Image(systemName: "app.dashed")
+                .font(.system(size: 18))
+                .foregroundStyle(.tertiary)
+                .frame(width: 22, height: 22)
         }
     }
 
