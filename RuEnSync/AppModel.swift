@@ -355,6 +355,13 @@ final class AppModel {
                 return
             }
             activity.record(.osHandshakeSent(name: name))
+            // Force a fresh TIS read so the firmware seed reflects the actual
+            // current macOS layout, not a possibly-stale `lastIndex` left over
+            // from a missed notification (Punto Switcher burst, distributed-
+            // notification coalescing, etc.). Without this, manual Reconnect
+            // would silently re-send the stale value and the desync would
+            // outlive the recovery.
+            layoutWatcher.refreshCurrentIndex()
             if let last = layoutWatcher.lastIndex {
                 hidLinks[idx].send(layoutIndex: last)
             }

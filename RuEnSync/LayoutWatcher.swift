@@ -46,22 +46,54 @@ final class LayoutWatcher {
         readAndDispatch()
     }
 
-    /// Reads the current input source and dispatches the resolved index. Logs
-    /// (but does not crash) when the suffix isn't in `config.layouts`.
+    /// Reads the current TIS input source and updates `lastIndex` on success.
+    /// Does NOT fire `onLayoutChanged` — use `readAndDispatch` for that.
+    ///
+    /// Use this when a caller needs a fresh authoritative read of macOS state
+    /// (typically: on HID device reconnect, to send firmware the actual
+    /// current layout instead of a potentially-stale cached `lastIndex`).
+    /// `lastIndex` is preserved on read failure so the caller can fall back.
+    @discardableResult
+    func refreshCurrentIndex() -> UInt8? {
+        guard let result = readCurrent() else { return nil }
+        lastIndex = result.idx
+        Log.layout.debug("layout '\(result.id, privacy: .public)' → idx=\(result.idx) (refresh)")
+        return result.idx
+    }
+
+    /// Reads the current input source and dispatches the resolved index when
+    /// it differs from the previously cached one. Same-state notifications
+    /// (Punto Switcher and similar tools fire bursts of TIS notifications
+    /// even for no-op switches; see firmware-side analysis) are deduped here
+    /// to avoid hammering the QMK Raw HID endpoint, which is single-buffered
+    /// and can drop packets under rapid bursts.
     func readAndDispatch() {
+        let previousIndex = lastIndex
+        guard let result = readCurrent() else { return }
+        lastIndex = result.idx
+        if previousIndex == result.idx { return }
+        Log.layout.info("layout '\(result.id, privacy: .public)' → idx=\(result.idx)")
+        onLayoutChanged?(result.idx)
+    }
+
+    /// Pure TIS read + resolve. Returns `nil` on any failure (TIS API
+    /// returned nil, property missing, suffix not in `layouts`). Does not
+    /// mutate `lastIndex` — that's the caller's job, so `refreshCurrentIndex`
+    /// and `readAndDispatch` can each apply their own write/dispatch policy.
+    private func readCurrent() -> (idx: UInt8, id: String)? {
         guard
             let unmanaged = TISCopyCurrentKeyboardLayoutInputSource(),
             let inputSource = unmanaged.takeRetainedValue() as TISInputSource?
         else {
             Log.layout.error("TISCopyCurrentKeyboardLayoutInputSource returned nil")
-            return
+            return nil
         }
 
         guard
             let rawID = TISGetInputSourceProperty(inputSource, kTISPropertyInputSourceID)
         else {
             Log.layout.error("kTISPropertyInputSourceID returned nil")
-            return
+            return nil
         }
         let id = Unmanaged<CFString>.fromOpaque(rawID).takeUnretainedValue() as String
 
@@ -69,12 +101,10 @@ final class LayoutWatcher {
             let layoutList = layouts
             Log.layout
                 .warning("input source '\(id, privacy: .public)' not in \(layoutList, privacy: .public) — ignored")
-            return
+            return nil
         }
 
-        lastIndex = idx
-        Log.layout.info("layout '\(id, privacy: .public)' → idx=\(idx)")
-        onLayoutChanged?(idx)
+        return (idx, id)
     }
 
     /// Cancels the distributed-notification subscription. Same rationale as
