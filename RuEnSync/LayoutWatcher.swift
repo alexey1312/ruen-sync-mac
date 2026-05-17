@@ -86,4 +86,51 @@ final class LayoutWatcher {
             self.observer = nil
         }
     }
+
+    /// Programmatically switches the macOS keyboard layout to the one whose
+    /// `kTISPropertyInputSourceID` ends with `layoutName` (e.g. `"Russian"`).
+    /// macOS will then fire `kTISNotifySelectedKeyboardInputSourceChanged`,
+    /// which `readAndDispatch()` will pick up and forward through the normal
+    /// HIDLink path — no special branch for per-app overrides.
+    ///
+    /// Returns `true` on success, `false` if no enabled keyboard input source
+    /// matches the requested suffix. Logs the failure mode either way.
+    @discardableResult
+    func selectInputSource(layoutName: String) -> Bool {
+        // Match by suffix to mirror LayoutResolver.resolveIndex: the user
+        // writes `"Russian"` in config and we look up
+        // `com.apple.keylayout.Russian`. Keeps the config format symmetric
+        // for read (LayoutResolver) and write (this method).
+        let filter: [CFString: Any] = [
+            kTISPropertyInputSourceCategory: kTISCategoryKeyboardInputSource as Any,
+        ]
+        guard
+            let unmanaged = TISCreateInputSourceList(filter as CFDictionary, false),
+            let sources = unmanaged.takeRetainedValue() as? [TISInputSource]
+        else {
+            Log.layout.error("TISCreateInputSourceList returned nil")
+            return false
+        }
+
+        for source in sources {
+            guard let rawID = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { continue }
+            let id = Unmanaged<CFString>.fromOpaque(rawID).takeUnretainedValue() as String
+            let suffix = id.split(separator: ".").last.map(String.init) ?? id
+            guard suffix == layoutName else { continue }
+
+            let result = TISSelectInputSource(source)
+            if result == noErr {
+                Log.layout.info("selected input source '\(id, privacy: .public)' programmatically")
+                return true
+            }
+            Log.layout
+                .error(
+                    "TISSelectInputSource('\(id, privacy: .public)') failed: \(result, privacy: .public)"
+                )
+            return false
+        }
+
+        Log.layout.warning("no enabled keyboard input source matches '\(layoutName, privacy: .public)'")
+        return false
+    }
 }

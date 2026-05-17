@@ -205,6 +205,17 @@ private struct MenuContent: View {
         }
         .keyboardShortcut("r")
 
+        // Quick toggle for per-app switching, mirroring the
+        // `appLayoutSwitchingEnabled` flag in config.json. Only shown when
+        // at least one rule exists — otherwise the toggle would be a no-op
+        // and adds confusing surface area.
+        if model.hasAppLayoutRules {
+            Toggle("Auto-switch by app", isOn: Binding(
+                get: { model.appLayoutSwitchingEnabled },
+                set: { model.appLayoutSwitchingEnabled = $0 }
+            ))
+        }
+
         Button("Open config…") {
             NSWorkspace.shared.activateFileViewerSelecting([ConfigStore.configURL])
         }

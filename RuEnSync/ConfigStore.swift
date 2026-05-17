@@ -16,17 +16,45 @@ struct Config: Codable, Equatable {
         let usage: UInt32?
     }
 
+    /// A single per-app layout switching rule. Either `bundleId` (exact match)
+    /// or `bundleIdPrefix` is required; if both are set, exact wins. `layout`
+    /// is a suffix from `Config.layouts` — e.g. `"ABC"` or `"Russian"`. Apps
+    /// whose bundle ID doesn't match any rule keep whatever layout was active.
+    struct AppLayoutRule: Codable, Equatable {
+        /// Exact bundle identifier (e.g. `"com.apple.dt.Xcode"`).
+        var bundleId: String?
+        /// Bundle identifier prefix (e.g. `"com.jetbrains."`) — catches all
+        /// JetBrains IDEs with one rule. Matched only if `bundleId` is nil.
+        var bundleIdPrefix: String?
+        /// Layout name as it appears in `Config.layouts` — the suffix after
+        /// the last dot of a `kTISPropertyInputSourceID`, e.g. `"Russian"`.
+        var layout: String
+    }
+
     var devices: [Device]
     /// Ordered list of `TISPropertyInputSourceID` suffixes (the part after the
     /// last `.`). The index of the active layout in this array is sent as
     /// `data[1]` to the keyboard. Firmware treats `0 → EN`, anything else → RU.
     var layouts: [String]
 
+    /// Optional rules for automatically switching the macOS input source when
+    /// a configured app becomes active. Backward-compatible: a config file
+    /// without this key behaves identically to the previous schema.
+    var appLayoutRules: [AppLayoutRule]?
+
+    /// Master switch for per-app layout switching. When `false` (or
+    /// `appLayoutRules` empty), the AppContextWatcher does nothing. Defaults
+    /// to `true` so adding rules to an existing config "just works" without
+    /// also requiring the user to enable the feature.
+    var appLayoutSwitchingEnabled: Bool?
+
     static let `default` = Config(
         devices: [
             .init(name: "Corne", productId: "0x0001", usagePage: nil, usage: nil),
         ],
-        layouts: ["ABC", "Russian"]
+        layouts: ["ABC", "Russian"],
+        appLayoutRules: nil,
+        appLayoutSwitchingEnabled: nil
     )
 }
 
@@ -116,6 +144,46 @@ enum ConfigStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(Config.default)
         try data.write(to: url, options: .atomic)
+    }
+
+    /// Watches `~/.config/RuEnSync/` for changes and reloads the config on
+    /// each modification. Returns the source so the caller can keep it alive
+    /// and cancel on teardown. We watch the **parent directory**, not the
+    /// file itself, because most editors save through atomic
+    /// write-temp-then-rename, which gives the original file a new inode and
+    /// invalidates any FD held on it. Watching the dir survives that pattern.
+    ///
+    /// The handler is dispatched on the main queue and re-enters @MainActor
+    /// before calling `onChange`. A burst of fsevents collapses naturally
+    /// because we always read the latest file on every fire.
+    static func watch(onChange: @MainActor @Sendable @escaping (Config) -> Void) -> DispatchSourceFileSystemObject? {
+        let dirURL = configURL.deletingLastPathComponent()
+        let fd = open(dirURL.path, O_EVTONLY)
+        guard fd >= 0 else {
+            Log.config.error("config watch: cannot open dir \(dirURL.path, privacy: .public) — errno=\(errno)")
+            return nil
+        }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            // .write covers normal saves, .delete/.rename catch atomic
+            // replace patterns (vim's `:w`, VSCode, JetBrains all rename).
+            eventMask: [.write, .delete, .rename],
+            queue: .main
+        )
+        source.setEventHandler {
+            // Always reload fresh — `loadOrSeedDefaults` reads the current
+            // path, so even after a rename we'll see the new file.
+            let config = loadOrSeedDefaults()
+            MainActor.assumeIsolated {
+                onChange(config)
+            }
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        source.resume()
+        Log.config.info("config watch: armed on \(dirURL.path, privacy: .public)")
+        return source
     }
 }
 

@@ -16,6 +16,8 @@ enum ActivityKind: Equatable {
     case reconnectTriggered
     case yieldedToApp(name: String)
     case resumedAfterApp(name: String)
+    case appLayoutOverride(bundleId: String, layoutName: String)
+    case configReloaded
 
     /// SF Symbol name for the row icon. Picked so the icon alone gives the
     /// user a rough idea of severity (`xmark.*` = bad, `arrow.triangle.*` =
@@ -31,6 +33,8 @@ enum ActivityKind: Equatable {
         case .reconnectTriggered: "arrow.clockwise"
         case .yieldedToApp: "pause.circle.fill"
         case .resumedAfterApp: "play.circle.fill"
+        case .appLayoutOverride: "app.badge.fill"
+        case .configReloaded: "doc.badge.gearshape"
         }
     }
 
@@ -46,6 +50,8 @@ enum ActivityKind: Equatable {
         case .reconnectTriggered: "Reconnect triggered"
         case let .yieldedToApp(name): "Yielded to \(name)"
         case let .resumedAfterApp(name): "Resumed after \(name)"
+        case let .appLayoutOverride(bundleId, layoutName): "\(bundleId) → \(layoutName)"
+        case .configReloaded: "Config reloaded"
         }
     }
 }
@@ -83,6 +89,13 @@ extension ActivityKind {
             .init(discriminator: "yieldedToApp", deviceName: name, reason: nil, label: nil)
         case let .resumedAfterApp(name):
             .init(discriminator: "resumedAfterApp", deviceName: name, reason: nil, label: nil)
+        case let .appLayoutOverride(bundleId, layoutName):
+            // We reuse `deviceName` for the bundle ID and `label` for the
+            // target layout — both are sendable strings, and adding a new
+            // column would require an ALTER TABLE. Round-trip is exact.
+            .init(discriminator: "appLayoutOverride", deviceName: bundleId, reason: nil, label: layoutName)
+        case .configReloaded:
+            .init(discriminator: "configReloaded", deviceName: nil, reason: nil, label: nil)
         }
     }
 
@@ -120,6 +133,11 @@ extension ActivityKind {
         case "resumedAfterApp":
             guard let deviceName else { return nil }
             self = .resumedAfterApp(name: deviceName)
+        case "appLayoutOverride":
+            guard let deviceName, let label else { return nil }
+            self = .appLayoutOverride(bundleId: deviceName, layoutName: label)
+        case "configReloaded":
+            self = .configReloaded
         default:
             return nil
         }

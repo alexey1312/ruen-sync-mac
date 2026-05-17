@@ -25,21 +25,31 @@ final class AppModel {
     private(set) var layoutIndex: UInt8?
 
     /// Per-device status. Empty if config has no usable devices.
-    private(set) var deviceStatuses: [DeviceStatus] = []
+    /// Writer is `internal` (not `private(set)`) so the coordination
+    /// extension in another file can mutate; we keep the convention of
+    /// writing through AppModel methods to preserve the @Observable contract.
+    var deviceStatuses: [DeviceStatus] = []
 
     /// Name of the conflicting app we've yielded the HID device to, or `nil`
     /// when we're operating normally. While non-nil all HID links are stopped
     /// and no reconnect attempts are scheduled — we sit out until the app
     /// quits and ConflictWatcher fires `onConflictCleared`.
-    private(set) var yieldedTo: String?
+    var yieldedTo: String?
 
     /// Recent events, newest first. UI binds to this for the activity panel.
     let activity = ActivityStore()
 
-    private let config: Config
-    private var hidLinks: [HIDLink] = []
-    private let layoutWatcher: LayoutWatcher
-    private let conflictWatcher = ConflictWatcher()
+    // `internal` access (not `private`) so the coordination extension in
+    // AppModel+Coordination.swift can read/write these. Swift's `private`
+    // is per-type-per-file; extensions across files need at least internal.
+    var config: Config
+    var hidLinks: [HIDLink] = []
+    let layoutWatcher: LayoutWatcher
+    let conflictWatcher = ConflictWatcher()
+    let appContextWatcher = AppContextWatcher()
+    /// Held to keep the file-watcher alive — releasing it would cancel
+    /// the DispatchSource and stop reloads.
+    var configWatch: DispatchSourceFileSystemObject?
 
     /// Background task that retries `reconnectAll()` while any link is offline
     /// for a recoverable reason. `nil` when no retry is pending. Cancelled the
@@ -84,6 +94,15 @@ final class AppModel {
         }
         conflictWatcher.start()
 
+        appContextWatcher.onAppActivated = { [weak self] bundleId in
+            self?.handleAppActivated(bundleId: bundleId)
+        }
+        appContextWatcher.start()
+
+        configWatch = ConfigStore.watch { [weak self] newConfig in
+            self?.applyNewConfig(newConfig)
+        }
+
         if yieldedTo == nil {
             buildAndStartLinks()
         }
@@ -113,45 +132,6 @@ final class AppModel {
         buildAndStartLinks()
     }
 
-    /// User-initiated override: leave yielded state even if the conflicting
-    /// app is still running, and try to retake the device. Wired to the
-    /// "Resume anyway" menu item that appears only when yielded.
-    func forceResume() {
-        guard yieldedTo != nil else { return }
-        Log.app.info("force-resume requested by user")
-        handleConflictCleared()
-    }
-
-    // MARK: Conflict (Vial / QMK Toolbox) handling
-
-    private func handleConflictAppeared(appName: String) {
-        // Already yielded to something — record the *new* app but keep the
-        // current `yieldedTo` label since we don't track multiple concurrent
-        // conflicts in the UI (the activity log carries the full sequence).
-        if yieldedTo != nil {
-            activity.record(.yieldedToApp(name: appName))
-            return
-        }
-
-        yieldedTo = appName
-        cancelReconnectTask()
-        for link in hidLinks {
-            link.stop()
-        }
-        hidLinks = []
-        deviceStatuses = []
-        Log.app.info("yielded HID device to \(appName, privacy: .public)")
-        activity.record(.yieldedToApp(name: appName))
-    }
-
-    private func handleConflictCleared() {
-        guard let previousApp = yieldedTo else { return }
-        yieldedTo = nil
-        Log.app.info("resuming after \(previousApp, privacy: .public)")
-        activity.record(.resumedAfterApp(name: previousApp))
-        buildAndStartLinks()
-    }
-
     /// Spawns the background task that keeps retrying `reconnectAll()` until
     /// any link reports `.connected`. Idempotent: a no-op if a task is already
     /// running. Cancellation is the only termination path — the closure inside
@@ -174,7 +154,8 @@ final class AppModel {
         }
     }
 
-    private func cancelReconnectTask() {
+    // internal so AppModel+Coordination can cancel before yielding.
+    func cancelReconnectTask() {
         reconnectTask?.cancel()
         reconnectTask = nil
     }
@@ -203,7 +184,8 @@ final class AppModel {
         return .milliseconds(min(delayMS, capMS))
     }
 
-    private func buildAndStartLinks() {
+    // internal so AppModel+Coordination can rebuild after resume/config change.
+    func buildAndStartLinks() {
         let resolved = config.devices.compactMap(ResolvedDevice.init)
         if resolved.isEmpty {
             Log.app.error("no usable device in config — running in observe-only mode")

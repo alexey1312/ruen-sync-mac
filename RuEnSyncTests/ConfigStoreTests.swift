@@ -62,6 +62,80 @@ struct ConfigDecodingTests {
         #expect(resolved[0].productId == 0x0001)
         #expect(resolved[1].productId == 0x0002)
     }
+
+    @Test("legacy config without appLayoutRules still decodes")
+    func decodesLegacyConfigWithoutRules() throws {
+        // Mirror an existing user's config.json. Adding new optional fields
+        // must not break loading — backward compatibility is non-negotiable.
+        let json = Data("""
+        {
+          "devices": [{ "productId": "0x0001", "name": "Corne" }],
+          "layouts": ["ABC", "Russian"]
+        }
+        """.utf8)
+        let config = try JSONDecoder().decode(Config.self, from: json)
+        #expect(config.appLayoutRules == nil)
+        #expect(config.appLayoutSwitchingEnabled == nil)
+    }
+
+    @Test("decodes appLayoutRules with exact and prefix entries")
+    func decodesRules() throws {
+        let json = Data("""
+        {
+          "devices": [{ "productId": "0x0001", "name": "Corne" }],
+          "layouts": ["ABC", "Russian"],
+          "appLayoutRules": [
+            { "bundleId": "com.apple.dt.Xcode", "layout": "ABC" },
+            { "bundleIdPrefix": "com.jetbrains.", "layout": "ABC" },
+            { "bundleId": "com.tinyspeck.slackmacgap", "layout": "Russian" }
+          ],
+          "appLayoutSwitchingEnabled": true
+        }
+        """.utf8)
+        let config = try JSONDecoder().decode(Config.self, from: json)
+        #expect(config.appLayoutRules?.count == 3)
+        #expect(config.appLayoutRules?[0].bundleId == "com.apple.dt.Xcode")
+        #expect(config.appLayoutRules?[1].bundleIdPrefix == "com.jetbrains.")
+        #expect(config.appLayoutSwitchingEnabled == true)
+    }
+}
+
+struct AppLayoutRuleMatchingTests {
+    @Test("exact bundleId wins over a prefix that also matches")
+    func exactBeatsPrefix() {
+        let rules: [Config.AppLayoutRule] = [
+            .init(bundleId: nil, bundleIdPrefix: "com.jetbrains.", layout: "ABC"),
+            .init(bundleId: "com.jetbrains.AppCode", bundleIdPrefix: nil, layout: "Russian"),
+        ]
+        let match = AppLayoutRuleMatching.match(rules: rules, bundleId: "com.jetbrains.AppCode")
+        #expect(match?.layout == "Russian")
+    }
+
+    @Test("longest prefix wins when multiple prefixes match")
+    func longestPrefixWins() {
+        let rules: [Config.AppLayoutRule] = [
+            .init(bundleId: nil, bundleIdPrefix: "com.", layout: "ABC"),
+            .init(bundleId: nil, bundleIdPrefix: "com.jetbrains.", layout: "Russian"),
+        ]
+        let match = AppLayoutRuleMatching.match(rules: rules, bundleId: "com.jetbrains.AppCode")
+        // The longer prefix is specifically about "com.jetbrains.*", so it
+        // wins over the more permissive "com.*".
+        #expect(match?.bundleIdPrefix == "com.jetbrains.")
+    }
+
+    @Test("no match returns nil")
+    func noMatch() {
+        let rules: [Config.AppLayoutRule] = [
+            .init(bundleId: "com.apple.dt.Xcode", bundleIdPrefix: nil, layout: "ABC"),
+        ]
+        let match = AppLayoutRuleMatching.match(rules: rules, bundleId: "com.apple.Notes")
+        #expect(match == nil)
+    }
+
+    @Test("empty rules returns nil")
+    func emptyRules() {
+        #expect(AppLayoutRuleMatching.match(rules: [], bundleId: "com.apple.Notes") == nil)
+    }
 }
 
 struct ResolvedDeviceTests {
