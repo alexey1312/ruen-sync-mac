@@ -21,13 +21,16 @@ struct SettingsView: View {
             SettingsDevicesTab(model: model)
                 .tabItem { Label("Devices", systemImage: "keyboard") }
 
+            SettingsLayoutsTab(model: model)
+                .tabItem { Label("Layouts", systemImage: "globe") }
+
             SettingsAppRulesTab(model: model)
                 .tabItem { Label("App Rules", systemImage: "app.badge") }
 
             DebugTab(model: model)
                 .tabItem { Label("Debug", systemImage: "ladybug") }
         }
-        .frame(width: 520, height: 380)
+        .frame(width: 560, height: 400)
     }
 }
 
