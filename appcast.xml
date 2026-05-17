@@ -3,6 +3,15 @@
     <channel>
         <title>RuEnSync</title>
         <item>
+            <title>1.4.1</title>
+            <pubDate>Sun, 17 May 2026 15:43:47 +0000</pubDate>
+            <link>https://github.com/alexey1312/ruen-sync-mac</link>
+            <sparkle:version>1.4.1</sparkle:version>
+            <sparkle:shortVersionString>1.4.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/alexey1312/ruen-sync-mac/releases/download/v1.4.1/RuEnSync.dmg" length="3005714" type="application/octet-stream" sparkle:edSignature="g7HaOEcXr8bZFRrezSSd5ZdhnmKReCWvNNhHCI+XaYuhurwDmlJ6kpJjSO8ekoMN/CRNYaGFizu3YS9ufDhJBA=="/>
+        </item>
+        <item>
             <title>1.4.0</title>
             <pubDate>Sun, 17 May 2026 06:41:27 +0000</pubDate>
             <link>https://github.com/alexey1312/ruen-sync-mac</link>
@@ -19,15 +28,6 @@
             <sparkle:shortVersionString>1.3.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/alexey1312/ruen-sync-mac/releases/download/v1.3.1/RuEnSync.dmg" length="2463251" type="application/octet-stream" sparkle:edSignature="44WNBgio5bWoHmoL1eMlnhy13cM9HGXvS9ZEbD+GZB4PUkaE12rICg7OytucbBmHx//NeXmi7xWJWUiSpCeuCw=="/>
-        </item>
-        <item>
-            <title>1.3.0</title>
-            <pubDate>Sat, 16 May 2026 18:02:17 +0000</pubDate>
-            <link>https://github.com/alexey1312/ruen-sync-mac</link>
-            <sparkle:version>1.3.0</sparkle:version>
-            <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/alexey1312/ruen-sync-mac/releases/download/v1.3.0/RuEnSync.dmg" length="2463196" type="application/octet-stream" sparkle:edSignature="6/RDBZUvs0Rx3Mk2XAOLJi/vWw27dym0xB+oTC/R9VkIF122V/4H+v2KmXIXO2G/EfrZX1GCvVvyoeMiq2VcAg=="/>
         </item>
     </channel>
 </rss>
