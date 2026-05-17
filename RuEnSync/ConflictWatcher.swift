@@ -53,14 +53,26 @@ final class ConflictWatcher {
 
         // Seed `activeBundleIds` from already-running apps so we yield
         // before HIDLink.start() ever tries to open the busy endpoint.
+        // We log every seed app at info even though only the first one
+        // appears in the menubar UI — without that, a "Vial AND QMK
+        // Toolbox both running at launch, then Vial quits" sequence is
+        // mute from the activity log's perspective.
         var seedName: String?
+        var seededNames: [String] = []
         for app in NSWorkspace.shared.runningApplications {
             guard let bundleId = app.bundleIdentifier,
                   Self.conflictingBundleIds.contains(bundleId) else { continue }
+            let name = app.localizedName ?? Self.fallbackDisplayName(for: bundleId)
             if activeBundleIds.isEmpty {
-                seedName = app.localizedName ?? Self.fallbackDisplayName(for: bundleId)
+                seedName = name
             }
             activeBundleIds.insert(bundleId)
+            seededNames.append(name)
+        }
+
+        if !seededNames.isEmpty {
+            let joined = seededNames.joined(separator: ", ")
+            Log.app.info("ConflictWatcher seed: already running — \(joined, privacy: .public)")
         }
 
         if let seedName {

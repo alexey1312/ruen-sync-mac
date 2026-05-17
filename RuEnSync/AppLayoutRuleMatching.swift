@@ -6,23 +6,29 @@ import Foundation
 /// be called from `nonisolated` test contexts and reused if we ever surface
 /// the lookup in a CLI / diagnostics tool. Behaviour:
 ///
-/// 1. Exact `bundleId` match wins over any prefix match.
-/// 2. Among prefix matches, the **longest** prefix wins. This makes
+/// 1. Exact `.exact(bundleId)` match wins over any `.prefix` match.
+/// 2. Among `.prefix` matches, the **longest** prefix wins. This makes
 ///    `com.jetbrains.AppCode` correctly pick a `com.jetbrains.` rule over a
 ///    broader `com.` catch-all, regardless of the rules' order in the array.
-/// 3. Rules without either `bundleId` or `bundleIdPrefix` are inert — they
-///    can't match anything. We don't reject the config; the user's intent
-///    might be to disable a rule by clearing both fields.
+///
+/// "Inert" rules cannot exist at the type level — `AppLayoutRule.Match` is a
+/// sum type so a rule with neither bundleId nor prefix is unrepresentable.
 enum AppLayoutRuleMatching {
     static func match(rules: [Config.AppLayoutRule], bundleId: String) -> Config.AppLayoutRule? {
-        if let exact = rules.first(where: { $0.bundleId == bundleId }) {
+        if let exact = rules.first(where: {
+            if case let .exact(id) = $0.match { id == bundleId } else { false }
+        }) {
             return exact
         }
         return rules
             .filter { rule in
-                guard let prefix = rule.bundleIdPrefix else { return false }
+                guard case let .prefix(prefix) = rule.match else { return false }
                 return bundleId.hasPrefix(prefix)
             }
-            .max(by: { ($0.bundleIdPrefix?.count ?? 0) < ($1.bundleIdPrefix?.count ?? 0) })
+            .max(by: { lhs, rhs in
+                let l = if case let .prefix(p) = lhs.match { p.count } else { 0 }
+                let r = if case let .prefix(p) = rhs.match { p.count } else { 0 }
+                return l < r
+            })
     }
 }

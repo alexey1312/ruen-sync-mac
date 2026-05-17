@@ -123,8 +123,31 @@ Scripts/
 
 12. **First-run device discovery is gated by UserDefaults flag**
     `ruensync.autoDiscoveryRan`. Without it, deleting the last device in
-    Settings would resurrect it on the next launch. Re-running discovery
-    manually is Settings → Devices → Scan.
+    Settings would resurrect it on the next launch. The flag is set ONLY
+    after a successful `ConfigStore.save` — a save failure keeps the flag
+    clear so the next launch retries. The flag is one-time and has no
+    "reset" UI; to manually pick up newly-plugged keyboards, use Settings
+    → Devices → **Scan…**, which opens a picker showing all visible QMK
+    Raw HID devices and adds them one at a time.
+
+13. **`ConfigStore.load()` returns a `LoadResult` enum**
+    (`.loaded`/`.missing`/`.corrupt`). Never use the older
+    `loadOrSeedDefaults` path for new code: it conflates "first run" with
+    "user's config is broken", and the latter must NOT trigger
+    auto-discovery (which would then overwrite the recoverable bad file
+    with a discovered-devices shell). `AppModel(allowAutoDiscoverySeed:)`
+    is the gate; pass `false` when the load was `.corrupt`. The
+    file-watcher classifies events the same way and refuses to apply a
+    `.corrupt` decode — it surfaces `lastSettingsError` and records
+    `ActivityKind.configInvalid` instead of replacing the live config.
+
+14. **Self-write suppression in `ConfigStore.watch` uses a SHA stamp.**
+    The previous 500 ms time-window heuristic both let burst fsevents
+    leak through (logging duplicate `configReloaded`) and could swallow
+    fast external edits. `lastWrittenSHA` is stamped on every `save` /
+    `writeDefault` / clean `load`; the watcher compares the SHA of the
+    on-disk bytes against that stamp and only fires `onChange` for
+    foreign writes.
 
 ## Firmware contract
 
@@ -226,6 +249,19 @@ Or open the generated workspace in Xcode and ⌘R.
 - Logger calls go through `Log.<category>` from `Logger.swift`. Always use the
   `os.Logger` API with `privacy:` annotations on interpolated values.
 
+### Tests and persistent state
+
+- `ActivityStore()` (no-args init) opens the **real** `~/.config/RuEnSync/activity.db`.
+  Tests that touch `model.activity` and assert on `entries.count` or
+  `count + 1` will pass in isolation and then start failing once the
+  on-disk log accumulates ≥ capacity rows from earlier runs (capacity
+  caps the in-memory mirror at 100). Prefer asserting on
+  `entries.first?.kind` / `entries.first?.id` — they're stable under
+  any accumulated history. For end-to-end isolation, use the test-only
+  `ActivityStore(database:)` init with `try ActivityDatabase(path: ":memory:")`.
+- `AppModel` test models can be built with `allowAutoDiscoverySeed: false`
+  to skip the IOKit-touching first-run discovery path.
+
 ### Format / lint quirks
 
 - `mise run format:swift` skips `Project.swift` — it only walks `RuEnSync/` and
@@ -240,6 +276,17 @@ Or open the generated workspace in Xcode and ⌘R.
   move logic into `AppModel+Coordination.swift` (extension); stored properties
   stay in core, methods + computed properties move out. Make `private` →
   internal for members the extension touches.
+- SwiftLint `nesting` capped at 1. A sum type inside a struct inside an
+  outer type (`Config.AppLayoutRule.Match`) violates this; suppress with
+  `// swiftlint:disable:next nesting` on the inner declaration when the
+  type is meaningless outside its enclosing scope (promoting it to
+  module scope just leaks namespace).
+- `mise run format` (hk fix) will split long `Text("…")` / `String(…)`
+  literals across multiple lines, which silently invalidates any
+  `// swiftlint:disable:previous line_length` annotation that used to
+  apply (the "previous" line is now the closing paren, not the long
+  string). Prefer `"first half " + "second half"` concatenation over
+  the disable-comment trick for strings the formatter is likely to wrap.
 - swiftformat strips `self.` from interpolations even inside Logger's
   `@autoclosure` context, breaking compile with _"reference to property X in
   closure requires explicit use of 'self'"_. Fix: bind to a local let first —

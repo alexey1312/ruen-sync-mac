@@ -23,9 +23,10 @@ import os
 @MainActor
 final class AppContextWatcher {
     /// Fires after the debounce window has elapsed, with the bundle ID of
-    /// the app that is currently frontmost. `nil` if the frontmost app has
-    /// no bundle identifier (rare — some background helpers).
-    var onAppActivated: ((_ bundleId: String?) -> Void)?
+    /// the app that is currently frontmost. The watcher filters out the
+    /// no-bundle-ID case internally (background helpers) so consumers
+    /// don't have to repeat the `guard let bundleId` check.
+    var onAppActivated: ((_ bundleId: String) -> Void)?
 
     /// Debounce interval. 200 ms is a tunable; if Cmd+Tab feels laggy we
     /// can drop to 100 ms, if it spams we can go to 300 ms.
@@ -75,13 +76,22 @@ final class AppContextWatcher {
     /// the **last** app. Task-based debounce instead of DispatchSourceTimer
     /// because we already need `@MainActor` isolation for the callback, and
     /// `Task.sleep` is cheap.
+    ///
+    /// `nil` bundle IDs (background helpers without an Info.plist
+    /// `CFBundleIdentifier`) are dropped here so the consumer doesn't have
+    /// to repeat the guard — there's no useful per-app rule for "the
+    /// unnamed thing macOS just focused".
     private func scheduleDispatch(bundleId: String?) {
         pendingDispatch?.cancel()
+        guard let bundleId else { return }
         pendingDispatch = Task { [weak self] in
             do {
                 try await Task.sleep(for: Self.debounce)
+            } catch is CancellationError {
+                return // a newer activation superseded us
             } catch {
-                return // cancelled — a newer activation superseded us
+                Log.app.error("AppContextWatcher sleep failed: \(error.localizedDescription, privacy: .public)")
+                return
             }
             guard !Task.isCancelled else { return }
             self?.onAppActivated?(bundleId)

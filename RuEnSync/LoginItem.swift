@@ -28,8 +28,8 @@ enum LoginItem {
         }
     }
 
-    /// Unregister from login items. Not currently wired to UI, but kept here
-    /// so we don't go hunting later.
+    /// Unregister from login items. Wired to the Settings → General →
+    /// "Launch at login" toggle's off-path.
     static func unregister() {
         do {
             try SMAppService.mainApp.unregister()

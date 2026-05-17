@@ -75,7 +75,7 @@ they don't re-trigger this dialog.
 Most users won't need to touch a config file. On first launch RuEnSync scans
 for QMK Raw HID interfaces (UsagePage `0xFF60` / Usage `0x61`) and adds every
 match to its config automatically. Open the **Settings** window (⌘, or
-*menubar → Settings…*) to:
+_menubar → Settings…_) to:
 
 - **General** — toggle "Launch at login" and master "Auto-switch by app".
 - **Devices** — see the auto-discovered list, rename, remove, or rescan.
@@ -125,7 +125,7 @@ something else holds the lock, RuEnSync surfaces it in the menubar as
 - **Vial or QMK Toolbox is open** — RuEnSync detects them by bundle ID
   (`today.vial`, `fm.qmk.toolbox`) and **automatically releases the
   keyboard** while either is running. The menubar shows "Paused — Vial is
-  running" with a *Resume anyway* override; on quit the device is
+  running" with a _Resume anyway_ override; on quit the device is
   re-acquired and the OS-handshake replay happens automatically. No manual
   Reconnect needed.
 - **`qmk-hid-host` daemon is running.** The Rust daemon holds the device
@@ -145,7 +145,7 @@ The menubar's **Activity** sub-menu also shows the most recent layout
 switches, connects, and `_OS_TYPE` handshake results. History persists in
 `~/.config/RuEnSync/activity.db`.
 
-For richer bug reports, *Settings → Debug → Export diagnostics…* bundles
+For richer bug reports, _Settings → Debug → Export diagnostics…_ bundles
 the last hour of logs, the current config, the activity DB, and (when the
 inspector is on) the recent HID packet buffer into a single zip in
 `~/Downloads`.
@@ -153,15 +153,15 @@ inspector is on) the recent HID packet buffer into a single zip in
 Common issues:
 
 - **Menubar pill is outlined / "No device configured"** — auto-discovery
-  didn't find anything. Plug the keyboard in, then *Settings → Devices →
-  Scan…*. If nothing shows up, confirm the firmware exposes UsagePage
+  didn't find anything. Plug the keyboard in, then _Settings → Devices →
+  Scan…_. If nothing shows up, confirm the firmware exposes UsagePage
   `0xFF60` / Usage `0x61` (`ioreg -p IOUSB`).
 - **Wrong punctuation in Russian** — your `layouts` array doesn't contain
-  the active input source's suffix; either add it via *Settings → Layouts*
+  the active input source's suffix; either add it via _Settings → Layouts_
   or edit config.json directly.
-- **App doesn't start at login** — toggle *Launch at login* in
-  *Settings → General*, or check the entry in *System Settings → General →
-  Login Items*. `SMAppService` sometimes needs an explicit user
+- **App doesn't start at login** — toggle _Launch at login_ in
+  _Settings → General_, or check the entry in _System Settings → General →
+  Login Items_. `SMAppService` sometimes needs an explicit user
   confirmation after register.
 
 ## Contributing

@@ -87,16 +87,36 @@ final class LayoutWatcher {
         }
     }
 
+    /// Why a programmatic input-source switch couldn't happen. Carried back
+    /// to the caller (`AppModel.handleAppActivated`) so the activity log and
+    /// future UI badges can distinguish "rule references a layout the user
+    /// hasn't enabled in System Settings" from "the TIS call itself failed",
+    /// and so the failure surfaces somewhere other than `.warning`/`.error`
+    /// logs which the user almost never reads.
+    enum SelectError: Error, Equatable {
+        /// `TISCreateInputSourceList` returned nil — never observed in
+        /// practice, but distinct so it doesn't get classified as
+        /// "rule references missing layout".
+        case listFailed
+        /// No enabled keyboard input source has the requested suffix.
+        /// Almost always means: the user defined a rule pointing at e.g.
+        /// `RussianPhonetic` but hasn't enabled that layout in System
+        /// Settings → Keyboard → Input Sources.
+        case notEnabled
+        /// `TISSelectInputSource` rejected the call with a non-noErr status.
+        case tisFailed(OSStatus)
+    }
+
     /// Programmatically switches the macOS keyboard layout to the one whose
     /// `kTISPropertyInputSourceID` ends with `layoutName` (e.g. `"Russian"`).
     /// macOS will then fire `kTISNotifySelectedKeyboardInputSourceChanged`,
     /// which `readAndDispatch()` will pick up and forward through the normal
     /// HIDLink path — no special branch for per-app overrides.
     ///
-    /// Returns `true` on success, `false` if no enabled keyboard input source
-    /// matches the requested suffix. Logs the failure mode either way.
+    /// Returns `.success` on a successful switch, `.failure` with the
+    /// specific reason otherwise. Logs every branch.
     @discardableResult
-    func selectInputSource(layoutName: String) -> Bool {
+    func selectInputSource(layoutName: String) -> Result<Void, SelectError> {
         // Match by suffix to mirror LayoutResolver.resolveIndex: the user
         // writes `"Russian"` in config and we look up
         // `com.apple.keylayout.Russian`. Keeps the config format symmetric
@@ -109,7 +129,7 @@ final class LayoutWatcher {
             let sources = unmanaged.takeRetainedValue() as? [TISInputSource]
         else {
             Log.layout.error("TISCreateInputSourceList returned nil")
-            return false
+            return .failure(.listFailed)
         }
 
         for source in sources {
@@ -121,16 +141,31 @@ final class LayoutWatcher {
             let result = TISSelectInputSource(source)
             if result == noErr {
                 Log.layout.info("selected input source '\(id, privacy: .public)' programmatically")
-                return true
+                return .success(())
             }
             Log.layout
                 .error(
                     "TISSelectInputSource('\(id, privacy: .public)') failed: \(result, privacy: .public)"
                 )
-            return false
+            return .failure(.tisFailed(result))
         }
 
         Log.layout.warning("no enabled keyboard input source matches '\(layoutName, privacy: .public)'")
-        return false
+        return .failure(.notEnabled)
+    }
+}
+
+extension LayoutWatcher.SelectError {
+    /// Short label safe to include in `ActivityKind.appLayoutOverrideFailed`.
+    /// Kept localizable so the activity row reads naturally.
+    var activityLabel: String {
+        switch self {
+        case .listFailed:
+            String(localized: "input source list unavailable")
+        case .notEnabled:
+            String(localized: "layout not enabled in System Settings")
+        case let .tisFailed(status):
+            String(localized: "TIS error \(String(format: "0x%08X", Int(status)))")
+        }
     }
 }

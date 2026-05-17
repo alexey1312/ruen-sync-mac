@@ -36,6 +36,13 @@ final class AppModel {
     /// quits and ConflictWatcher fires `onConflictCleared`.
     var yieldedTo: String?
 
+    /// Last surfacable error to show in the Settings window as an inline
+    /// banner — disk-full saves, corrupt config detected, etc. `nil` when
+    /// nothing is wrong. Cleared by the UI once the user has seen it.
+    /// Surfaced here (not just logged) because the user has no other way to
+    /// know that their edit didn't take.
+    var lastSettingsError: String?
+
     /// Recent events, newest first. UI binds to this for the activity panel.
     let activity = ActivityStore()
 
@@ -65,8 +72,16 @@ final class AppModel {
     /// backoff if it wants.
     private var reconnectAttempt: Int = 0
 
-    init(config: Config) {
+    /// When false, `start()` skips the first-run auto-discovery seed. We use
+    /// this when the config file is present but failed to decode: discovering
+    /// devices then would call `ConfigStore.save`, which would overwrite the
+    /// recoverable bad file with an empty shell and silently lose all of the
+    /// user's existing rules / device names / debug settings.
+    private let allowAutoDiscoverySeed: Bool
+
+    init(config: Config, allowAutoDiscoverySeed: Bool = true) {
         self.config = config
+        self.allowAutoDiscoverySeed = allowAutoDiscoverySeed
         layoutWatcher = LayoutWatcher(layouts: config.layouts)
     }
 
@@ -100,12 +115,15 @@ final class AppModel {
         conflictWatcher.start()
 
         appContextWatcher.onAppActivated = { [weak self] bundleId in
+            // Watcher already filters nil bundle IDs internally; the
+            // remaining check inside `handleAppActivated` is for the
+            // master-switch and rule-presence guards.
             self?.handleAppActivated(bundleId: bundleId)
         }
         appContextWatcher.start()
 
-        configWatch = ConfigStore.watch { [weak self] newConfig in
-            self?.applyNewConfig(newConfig)
+        configWatch = ConfigStore.watch { [weak self] result in
+            self?.handleConfigEvent(result)
         }
 
         // First-time auto-discovery: if `devices` is empty AND we've never
@@ -113,9 +131,20 @@ final class AppModel {
         // we find. The flag prevents resurrecting devices a user later
         // removes on purpose — without it, deleting the last device would
         // immediately re-add it on the next launch.
-        if config.devices.isEmpty, !UserDefaults.standard.bool(forKey: Self.autoDiscoveryRanKey) {
-            autoDiscoverDevices()
-            UserDefaults.standard.set(true, forKey: Self.autoDiscoveryRanKey)
+        //
+        // Suppressed entirely when the initial load was corrupt: writing a
+        // discovered-devices shell over a recoverable bad file would erase
+        // the user's intent.
+        if allowAutoDiscoverySeed,
+           config.devices.isEmpty,
+           !UserDefaults.standard.bool(forKey: Self.autoDiscoveryRanKey)
+        {
+            // Only mark "ran" if the save succeeded — otherwise next launch
+            // should retry instead of stranding the user with empty devices
+            // and a UserDefaults flag that prevents any further attempt.
+            if autoDiscoverDevices() {
+                UserDefaults.standard.set(true, forKey: Self.autoDiscoveryRanKey)
+            }
         }
 
         if yieldedTo == nil {
@@ -173,7 +202,7 @@ final class AppModel {
         }
     }
 
-    // internal so AppModel+Coordination can cancel before yielding.
+    /// internal so AppModel+Coordination can cancel before yielding.
     func cancelReconnectTask() {
         reconnectTask?.cancel()
         reconnectTask = nil
@@ -203,7 +232,7 @@ final class AppModel {
         return .milliseconds(min(delayMS, capMS))
     }
 
-    // internal so AppModel+Coordination can rebuild after resume/config change.
+    /// internal so AppModel+Coordination can rebuild after resume/config change.
     func buildAndStartLinks() {
         let resolved = config.devices.compactMap(ResolvedDevice.init)
         if resolved.isEmpty {
@@ -223,7 +252,7 @@ final class AppModel {
             )
         }
 
-        let inspectionEnabled = config.debug?.hidInspector ?? false
+        let inspectionEnabled = config.effectiveHidInspectorEnabled
         for link in hidLinks {
             link.packetLog = packetLog
             link.inspectionEnabled = inspectionEnabled
@@ -241,7 +270,7 @@ final class AppModel {
     /// `"debug": { "hidInspector": true }` in config.json takes effect
     /// without needing to reconnect (which would interrupt typing).
     func refreshInspectionFlag() {
-        let enabled = config.debug?.hidInspector ?? false
+        let enabled = config.effectiveHidInspectorEnabled
         for link in hidLinks {
             link.inspectionEnabled = enabled
         }
@@ -309,76 +338,5 @@ final class AppModel {
     }
 }
 
-// MARK: - Display helpers
-
-extension AppModel {
-    /// Short language label (`EN`, `RU`, or `—` when status is unknown).
-    var languageLabel: String {
-        switch layoutIndex {
-        case .some(0): "EN"
-        case .some: "RU"
-        case .none: "—"
-        }
-    }
-
-    /// True iff any configured device is currently connected. Derived from
-    /// `deviceStatuses`; no shadow field to keep in sync.
-    var isAnyDeviceConnected: Bool {
-        deviceStatuses.contains { if case .connected = $0.state { true } else { false } }
-    }
-
-    /// Top-level human-readable status — used when there's a single device or
-    /// no devices, otherwise the UI iterates `deviceStatuses` directly.
-    var connectionDescription: String {
-        Self.describe(deviceStatuses)
-    }
-
-    /// Pure, testable formatter for the aggregate status line.
-    static func describe(_ statuses: [DeviceStatus]) -> String {
-        if statuses.isEmpty {
-            return String(localized: "No device configured")
-        }
-        if statuses.count == 1, let status = statuses.first {
-            return status.summary
-        }
-        let connectedCount = statuses.count(where: {
-            if case .connected = $0.state { return true }
-            return false
-        })
-        return String(localized: "\(connectedCount) of \(statuses.count) connected")
-    }
-}
-
-extension AppModel.DeviceStatus {
-    /// e.g. "Corne — connected" / "Corne — device busy (qmk-hid-host running?)".
-    /// The "connected" path is plain English even in the localized catalog
-    /// because most users see the device name there ("Corne", a proper noun)
-    /// and adding a "%@ — подключено" form is consistent with the activity
-    /// log's "%@ connected" entry — both reuse the same catalog string.
-    var summary: String {
-        switch state {
-        case .connected:
-            // Distinct from the activity log's "%@ connected" — this is the
-            // dropdown row, which uses the "%@ — connected" separator for
-            // visual consistency with the offline variant below.
-            String(localized: "\(name) — connected", comment: "Menubar dropdown row, connected")
-        case let .offline(reason):
-            String(localized: "\(name) — \(reason.menuLabel.lowercasedFirstLetter())")
-        }
-    }
-
-    var productIdLabel: String {
-        String(format: "0x%04X", productId)
-    }
-}
-
-// MARK: - String helper
-
-extension String {
-    /// Lowercases the first character. Used to splice `OfflineReason.menuLabel`
-    /// ("Not connected") into a sentence after "—" without double-capitalising.
-    func lowercasedFirstLetter() -> String {
-        guard let first else { return self }
-        return first.lowercased() + dropFirst()
-    }
-}
+// Display helpers (`languageLabel`, `DeviceStatus.summary`, …) live in
+// `AppModel+Display.swift` to keep this file under the 400-line lint cap.

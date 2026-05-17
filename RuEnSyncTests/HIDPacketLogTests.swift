@@ -36,7 +36,7 @@ struct HIDPacketLogTests {
     @Test("ring buffer drops oldest beyond capacity")
     func ringBufferDrop() {
         let log = HIDPacketLog(capacity: 3)
-        for i in 0..<5 {
+        for i in 0 ..< 5 {
             var bytes = [UInt8](repeating: 0, count: 32)
             bytes[0] = 0xAC
             bytes[1] = UInt8(i)

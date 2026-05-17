@@ -9,10 +9,12 @@ struct SettingsAppRulesTab: View {
         VStack(alignment: .leading) {
             Text("App layout rules")
                 .font(.headline)
-            Text("Match by exact bundle ID or by prefix. Exact wins over prefix; among prefixes, the longest match wins.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 4)
+            Text(
+                "Match by exact bundle ID or by prefix. Exact wins over prefix; among prefixes, the longest match wins."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.bottom, 4)
 
             let rules = model.config.appLayoutRules ?? []
             if rules.isEmpty {
@@ -38,7 +40,7 @@ struct SettingsAppRulesTab: View {
                     model.editConfig {
                         var list = $0.appLayoutRules ?? []
                         let firstLayout = $0.layouts.first ?? "ABC"
-                        list.append(.init(bundleId: "com.example.app", bundleIdPrefix: nil, layout: firstLayout))
+                        list.append(.exact("com.example.app", layout: firstLayout))
                         $0.appLayoutRules = list
                     }
                 }
@@ -50,7 +52,9 @@ struct SettingsAppRulesTab: View {
 
 private enum MatchKind: String, CaseIterable, Identifiable {
     case exact, prefix
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 }
 
 /// Editable row for one `appLayoutRule`. Uses a local `@State` draft for
@@ -130,27 +134,39 @@ private struct AppRuleRow: View {
     }
 
     private func syncDraftFromRule(_ rule: Config.AppLayoutRule) {
-        if let exact = rule.bundleId {
-            bundleDraft = exact
+        switch rule.match {
+        case let .exact(id):
+            bundleDraft = id
             matchKind = .exact
-        } else {
-            bundleDraft = rule.bundleIdPrefix ?? ""
+        case let .prefix(p):
+            bundleDraft = p
             matchKind = .prefix
         }
     }
 
+    /// Persist the draft. Empty / whitespace-only input is refused because
+    /// the rule type can't represent "nothing to match" — we'd rather keep
+    /// the previous value than create an unfireable rule that the matcher
+    /// would silently skip. The user explicitly removes a rule with the "−"
+    /// button.
     private func commitBundle() {
         let trimmed = bundleDraft.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            // Restore the displayed draft to whatever's currently persisted,
+            // so the empty TextField doesn't silently linger.
+            if let rule = (model.config.appLayoutRules ?? [])[safe: index] {
+                syncDraftFromRule(rule)
+            }
+            return
+        }
         model.editConfig { cfg in
             var list = cfg.appLayoutRules ?? []
             guard index < list.count else { return }
             switch matchKind {
             case .exact:
-                list[index].bundleId = trimmed.isEmpty ? nil : trimmed
-                list[index].bundleIdPrefix = nil
+                list[index].match = .exact(trimmed)
             case .prefix:
-                list[index].bundleId = nil
-                list[index].bundleIdPrefix = trimmed.isEmpty ? nil : trimmed
+                list[index].match = .prefix(trimmed)
             }
             cfg.appLayoutRules = list
         }

@@ -132,11 +132,13 @@ private struct ScanSheet: View {
                         .imageScale(.large)
                         .foregroundStyle(.secondary)
                     Text("No QMK Raw HID keyboards detected.")
-                    Text("Confirm the keyboard is plugged in and that the firmware exposes UsagePage 0xFF60 / Usage 0x61.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 360)
+                    Text(
+                        "Confirm the keyboard is plugged in and that the firmware exposes UsagePage 0xFF60 / Usage 0x61."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

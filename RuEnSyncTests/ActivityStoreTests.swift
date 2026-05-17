@@ -111,7 +111,9 @@ struct ActivityKindTests {
             .yieldedToApp(name: "Vial"),
             .resumedAfterApp(name: "Vial"),
             .appLayoutOverride(bundleId: "com.apple.dt.Xcode", layoutName: "ABC"),
+            .appLayoutOverrideFailed(bundleId: "com.apple.dt.Xcode", layoutName: "ABC", reason: "x"),
             .configReloaded,
+            .configInvalid,
         ]
         for kind in kinds {
             #expect(!kind.symbol.isEmpty)
@@ -137,7 +139,13 @@ struct ActivityKindTests {
             .yieldedToApp(name: "Vial"),
             .resumedAfterApp(name: "QMK Toolbox"),
             .appLayoutOverride(bundleId: "com.apple.dt.Xcode", layoutName: "ABC"),
+            .appLayoutOverrideFailed(
+                bundleId: "com.apple.dt.Xcode",
+                layoutName: "Russian",
+                reason: "layout not enabled in System Settings"
+            ),
             .configReloaded,
+            .configInvalid,
         ]
         for kind in kinds {
             let s = kind.storable

@@ -52,9 +52,8 @@ extension AppModel {
     /// programmatic input-source switch. The actual `HIDLink.send` happens
     /// through the existing `LayoutWatcher → onLayoutChanged → hidLinks`
     /// path — we don't duplicate the transmit logic here.
-    func handleAppActivated(bundleId: String?) {
-        guard appLayoutSwitchingEnabled else { return }
-        guard let bundleId else { return }
+    func handleAppActivated(bundleId: String) {
+        guard config.effectiveAppLayoutSwitchingEnabled else { return }
         guard let rules = config.appLayoutRules, !rules.isEmpty else { return }
         guard let rule = AppLayoutRuleMatching.match(rules: rules, bundleId: bundleId) else { return }
 
@@ -63,13 +62,20 @@ extension AppModel {
         // the layout already matches.
         if let lastIndex = layoutWatcher.lastIndex,
            lastIndex < config.layouts.count,
-           config.layouts[Int(lastIndex)] == rule.layout {
+           config.layouts[Int(lastIndex)] == rule.layout
+        {
             return
         }
 
-        let ok = layoutWatcher.selectInputSource(layoutName: rule.layout)
-        if ok {
+        switch layoutWatcher.selectInputSource(layoutName: rule.layout) {
+        case .success:
             activity.record(.appLayoutOverride(bundleId: bundleId, layoutName: rule.layout))
+        case let .failure(reason):
+            activity.record(.appLayoutOverrideFailed(
+                bundleId: bundleId,
+                layoutName: rule.layout,
+                reason: reason.activityLabel
+            ))
         }
     }
 
@@ -80,14 +86,11 @@ extension AppModel {
         !(config.appLayoutRules?.isEmpty ?? true)
     }
 
-    /// Two-way binding target for the menubar toggle. Reads the effective
-    /// state (defaults to `true` when unset, matching `handleAppActivated`),
-    /// and on write updates the in-memory config — the file is NOT touched
-    /// because the toggle is meant as a quick override, not a destructive
-    /// rewrite of the user's config.json.
+    /// Read-only view of the master per-app switching flag, with the implicit
+    /// default applied. Writes must go through `editConfig` so they persist
+    /// — the menubar Toggle and the Settings checkbox both rely on that.
     var appLayoutSwitchingEnabled: Bool {
-        get { config.appLayoutSwitchingEnabled ?? true }
-        set { config.appLayoutSwitchingEnabled = newValue }
+        config.effectiveAppLayoutSwitchingEnabled
     }
 
     // MARK: Dynamic config reload
@@ -97,7 +100,13 @@ extension AppModel {
     /// `devices`/`layouts` changes warrant a full HIDLink rebuild (the
     /// expensive part). `appLayoutRules` are read on every activation, so
     /// updating them is just a property assignment.
+    ///
+    /// No-op when `newConfig == config` (which happens when the file-watcher
+    /// fires for a save that produced the identical bytes — e.g. SHA-mismatch
+    /// timing window) — preserves the "silent no-op" invariant: no log
+    /// noise, no activity-log entry.
     func applyNewConfig(_ newConfig: Config) {
+        guard newConfig != config else { return }
         let devicesChanged = newConfig.devices != config.devices
         let layoutsChanged = newConfig.layouts != config.layouts
         config = newConfig
@@ -113,12 +122,36 @@ extension AppModel {
         }
     }
 
+    /// Routes a ConfigStore watcher event into the right path. Loaded → apply.
+    /// Corrupt → surface in `lastSettingsError` and the activity log, but
+    /// keep the previously-applied config in force. Missing → ignored: the
+    /// most likely cause is an in-progress atomic rename; if the file is
+    /// permanently gone we keep running on the last known config until the
+    /// user puts it back or reopens the app.
+    func handleConfigEvent(_ result: ConfigStore.LoadResult) {
+        switch result {
+        case let .loaded(newConfig):
+            applyNewConfig(newConfig)
+        case .missing:
+            Log.config.warning("config watch: file briefly missing — keeping previous")
+        case let .corrupt(error):
+            Log.config
+                .error(
+                    "config watch: refusing to apply invalid config — \(error.localizedDescription, privacy: .public)"
+                )
+            lastSettingsError = String(
+                localized: "Config file is invalid — keeping previous state. Fix ~/.config/RuEnSync/config.json or revert your edit."
+            )
+            activity.record(.configInvalid)
+        }
+    }
+
     // MARK: Config edits from Settings UI
 
     /// Mutates the in-memory config, persists it to disk, and re-applies
-    /// the changes immediately. The persisted write sets a self-write
-    /// marker so the file-watcher doesn't double-apply — see
-    /// `ConfigStore.selfWritingMarker`.
+    /// the changes immediately. The persisted write stamps a SHA so the
+    /// file-watcher knows to skip its own resulting fsevent — see
+    /// `ConfigStore.lastWrittenSHA`.
     func editConfig(_ transform: (inout Config) -> Void) {
         var updated = config
         transform(&updated)
@@ -127,22 +160,27 @@ extension AppModel {
             try ConfigStore.save(updated)
         } catch {
             Log.config.error("save failed: \(error.localizedDescription, privacy: .public)")
+            lastSettingsError = String(localized: "Couldn't save settings: \(error.localizedDescription)")
             return
         }
+        // Clear any prior error since the latest save succeeded.
+        if lastSettingsError != nil { lastSettingsError = nil }
         applyNewConfig(updated)
     }
 
     // MARK: Auto-discovery
 
     /// Synchronously polls IOKit for QMK Raw HID interfaces and adds every
-    /// discovered device to the config. No-op if nothing is plugged in —
-    /// the user can plug the keyboard in afterwards and open Settings →
-    /// Devices → Scan to re-run discovery manually.
-    func autoDiscoverDevices() {
+    /// discovered device to the config. Returns `true` if devices were found
+    /// AND successfully persisted (in which case the caller may set the
+    /// "discovery ran" flag); `false` on no-device or on save failure (in
+    /// which case the flag must stay clear so the next launch retries).
+    @discardableResult
+    func autoDiscoverDevices() -> Bool {
         let found = DeviceDiscovery.scan()
         guard !found.isEmpty else {
             Log.app.info("auto-discovery: no QMK Raw HID devices visible at launch")
-            return
+            return false
         }
         Log.app.info("auto-discovery: seeded \(found.count, privacy: .public) device(s)")
         config.devices = found.map { discovered in
@@ -157,8 +195,13 @@ extension AppModel {
         // edit in Settings has something to start from.
         do {
             try ConfigStore.save(config)
+            return true
         } catch {
             Log.config.error("auto-discovery save failed: \(error.localizedDescription, privacy: .public)")
+            // Don't surface as a Settings error: this fires very early in
+            // launch before the user can do anything about it. The empty
+            // devices state already signals "needs attention" in the UI.
+            return false
         }
     }
 }

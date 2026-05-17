@@ -14,11 +14,13 @@ struct SettingsLayoutsTab: View {
         VStack(alignment: .leading) {
             Text("Keyboard layouts")
                 .font(.headline)
-            Text("The order here matches the byte sent to the keyboard. Firmware treats index 0 as English and any other index as Russian.")
-                // swiftlint:disable:previous line_length
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 4)
+            Text(
+                "The order here matches the byte sent to the keyboard. Firmware treats index 0 as English and any other index as Russian."
+            )
+            // swiftlint:disable:previous line_length
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.bottom, 4)
 
             List {
                 ForEach(model.config.layouts.indices, id: \.self) { idx in
@@ -106,14 +108,14 @@ private struct LayoutRow: View {
                     moveUp()
                 } label: {
                     Image(systemName: "arrow.up")
-                } .buttonStyle(.borderless)
+                }.buttonStyle(.borderless)
                     .disabled(index == 0)
 
                 Button {
                     moveDown()
                 } label: {
                     Image(systemName: "arrow.down")
-                } .buttonStyle(.borderless)
+                }.buttonStyle(.borderless)
                     .disabled(index >= model.config.layouts.count - 1)
 
                 Button(role: .destructive) {

@@ -14,23 +14,58 @@ struct SettingsView: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        TabView {
-            GeneralTab(model: model)
-                .tabItem { Label("General", systemImage: "gear") }
+        VStack(spacing: 0) {
+            if let errorText = model.lastSettingsError {
+                SettingsErrorBanner(text: errorText) {
+                    model.lastSettingsError = nil
+                }
+            }
+            TabView {
+                GeneralTab(model: model)
+                    .tabItem { Label("General", systemImage: "gear") }
 
-            SettingsDevicesTab(model: model)
-                .tabItem { Label("Devices", systemImage: "keyboard") }
+                SettingsDevicesTab(model: model)
+                    .tabItem { Label("Devices", systemImage: "keyboard") }
 
-            SettingsLayoutsTab(model: model)
-                .tabItem { Label("Layouts", systemImage: "globe") }
+                SettingsLayoutsTab(model: model)
+                    .tabItem { Label("Layouts", systemImage: "globe") }
 
-            SettingsAppRulesTab(model: model)
-                .tabItem { Label("App Rules", systemImage: "app.badge") }
+                SettingsAppRulesTab(model: model)
+                    .tabItem { Label("App Rules", systemImage: "app.badge") }
 
-            DebugTab(model: model)
-                .tabItem { Label("Debug", systemImage: "ladybug") }
+                DebugTab(model: model)
+                    .tabItem { Label("Debug", systemImage: "ladybug") }
+            }
         }
         .frame(width: 560, height: 400)
+    }
+}
+
+/// Inline banner above the tabs. Surfaces `AppModel.lastSettingsError` —
+/// save failures, corrupt-config-detected, etc. — so the user can react
+/// without trawling Console. Dismissible: the user clears the error once
+/// they've seen it.
+private struct SettingsErrorBanner: View {
+    let text: String
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(text)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button(action: onDismiss) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.12))
     }
 }
 
@@ -66,9 +101,11 @@ private struct GeneralTab: View {
                         model.editConfig { $0.appLayoutSwitchingEnabled = newValue }
                     }
                 ))
-                Text("When on, activating an app listed in the App Rules tab automatically switches the macOS input source.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "When on, activating an app listed in the App Rules tab automatically switches the macOS input source."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("About") {
@@ -117,16 +154,17 @@ private struct DebugTab: View {
             }
 
             Section("Diagnostics") {
-                Text("Bundle logs, current config, the activity DB, and the packet buffer into a zip in ~/Downloads — useful for bug reports.")
-                    // swiftlint:disable:previous line_length
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Bundle logs, current config, the activity DB, and the packet buffer "
+                        + "into a zip in ~/Downloads — useful for bug reports."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 Button("Export diagnostics…") {
                     Task {
                         let packetLog = model.packetLog
-                        if let url = await Diagnostics.exportZip(packetLog: packetLog) {
-                            NSWorkspace.shared.activateFileViewerSelecting([url])
-                        }
+                        let result = await Diagnostics.exportZip(packetLog: packetLog)
+                        Diagnostics.handleExportResult(result, surfaceTo: model)
                     }
                 }
             }

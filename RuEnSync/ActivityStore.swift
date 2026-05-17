@@ -17,7 +17,9 @@ enum ActivityKind: Equatable {
     case yieldedToApp(name: String)
     case resumedAfterApp(name: String)
     case appLayoutOverride(bundleId: String, layoutName: String)
+    case appLayoutOverrideFailed(bundleId: String, layoutName: String, reason: String)
     case configReloaded
+    case configInvalid
 
     /// SF Symbol name for the row icon. Picked so the icon alone gives the
     /// user a rough idea of severity (`xmark.*` = bad, `arrow.triangle.*` =
@@ -34,7 +36,9 @@ enum ActivityKind: Equatable {
         case .yieldedToApp: "pause.circle.fill"
         case .resumedAfterApp: "play.circle.fill"
         case .appLayoutOverride: "app.badge.fill"
+        case .appLayoutOverrideFailed: "exclamationmark.app.fill"
         case .configReloaded: "doc.badge.gearshape"
+        case .configInvalid: "doc.badge.ellipsis"
         }
     }
 
@@ -65,8 +69,12 @@ enum ActivityKind: Equatable {
             String(localized: "Resumed after \(name)")
         case let .appLayoutOverride(bundleId, layoutName):
             String(localized: "\(bundleId) → \(layoutName)")
+        case let .appLayoutOverrideFailed(bundleId, layoutName, reason):
+            String(localized: "\(bundleId) → \(layoutName) — \(reason)")
         case .configReloaded:
             String(localized: "Config reloaded")
+        case .configInvalid:
+            String(localized: "Config invalid — keeping previous")
         }
     }
 }
@@ -109,8 +117,14 @@ extension ActivityKind {
             // target layout — both are sendable strings, and adding a new
             // column would require an ALTER TABLE. Round-trip is exact.
             .init(discriminator: "appLayoutOverride", deviceName: bundleId, reason: nil, label: layoutName)
+        case let .appLayoutOverrideFailed(bundleId, layoutName, reason):
+            // Same column reuse as `.appLayoutOverride`, with the existing
+            // `reason` slot carrying the failure mode — no schema change.
+            .init(discriminator: "appLayoutOverrideFailed", deviceName: bundleId, reason: reason, label: layoutName)
         case .configReloaded:
             .init(discriminator: "configReloaded", deviceName: nil, reason: nil, label: nil)
+        case .configInvalid:
+            .init(discriminator: "configInvalid", deviceName: nil, reason: nil, label: nil)
         }
     }
 
@@ -151,8 +165,13 @@ extension ActivityKind {
         case "appLayoutOverride":
             guard let deviceName, let label else { return nil }
             self = .appLayoutOverride(bundleId: deviceName, layoutName: label)
+        case "appLayoutOverrideFailed":
+            guard let deviceName, let label, let reason else { return nil }
+            self = .appLayoutOverrideFailed(bundleId: deviceName, layoutName: label, reason: reason)
         case "configReloaded":
             self = .configReloaded
+        case "configInvalid":
+            self = .configInvalid
         default:
             return nil
         }

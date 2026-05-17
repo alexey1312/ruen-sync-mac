@@ -7,7 +7,8 @@ import os
 
 /// Owns an `IOHIDManager` filtered to the configured Raw HID interface
 /// (UsagePage 0xFF60, Usage 0x61, ProductID = config.productId). Sends one
-/// 33-byte Output Report per layout change. Bit-for-bit identical to
+/// 32-byte Output Report per layout change (see `reportSize`; CLAUDE.md §4
+/// has the full byte-count rationale). Bit-for-bit identical to
 /// qmk-hid-host's wire format for `_LAYOUT`, so any unmodified Vial-QMK
 /// firmware listening for `[0xAC, idx, …]` accepts our packets.
 ///

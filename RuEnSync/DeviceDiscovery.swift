@@ -11,7 +11,10 @@ struct DiscoveredDevice: Equatable, Identifiable {
     /// `productId` as a stable identity; if two identical keyboards are
     /// plugged in we deduplicate by IOKit registry entry id (`uniqueId`).
     /// For most users it's a one-to-one mapping.
-    var id: UInt64 { uniqueId }
+    var id: UInt64 {
+        uniqueId
+    }
+
     let productId: UInt32
     let vendorId: UInt32
     /// `kIOHIDManufacturerKey` — e.g. "QMK", "FOSTAR".
@@ -56,14 +59,29 @@ enum DeviceDiscovery {
         ]
         IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
 
+        // Close the manager on the way out — without opening, the leak is
+        // small, but a long-running session that rescans repeatedly
+        // (Settings → Devices → Rescan loop) would accumulate IOKit handles.
+        defer { IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone)) }
+
         guard let devicesSet = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else {
+            // IOHIDManagerCopyDevices returns nil for both "no matches" and
+            // "underlying CF call failed". The matching dict here uses the
+            // standard QMK Raw HID descriptors, so any failure on a system
+            // that DOES have QMK keyboards plugged in is more interesting
+            // than the empty case — log at `.info` (still visible in
+            // diagnostics export) so the user can distinguish.
             Log.hid.info("device discovery: IOHIDManagerCopyDevices returned no devices")
             return []
         }
 
         var found: [DiscoveredDevice] = []
-        for device in devicesSet {
-            guard let entry = makeEntry(from: device) else { continue }
+        // Enumerate with an ordinal so identical keyboards that don't expose
+        // distinct `kIOHIDLocationIDKey` values still get unique
+        // `Identifiable` ids — otherwise SwiftUI's ForEach would log a
+        // diagnostic and one of the two rows would disappear from the picker.
+        for (ordinal, device) in devicesSet.enumerated() {
+            guard let entry = makeEntry(from: device, ordinal: UInt64(ordinal)) else { continue }
             found.append(entry)
         }
         // Stable order makes the picker deterministic across rescans.
@@ -73,12 +91,18 @@ enum DeviceDiscovery {
         }
     }
 
-    private static func makeEntry(from device: IOHIDDevice) -> DiscoveredDevice? {
+    private static func makeEntry(from device: IOHIDDevice, ordinal: UInt64) -> DiscoveredDevice? {
         guard let productId = readUInt32(device, key: kIOHIDProductIDKey) else { return nil }
         let vendorId = readUInt32(device, key: kIOHIDVendorIDKey) ?? 0
         let manufacturer = readString(device, key: kIOHIDManufacturerKey)
         let productName = readString(device, key: kIOHIDProductKey)
-        let uniqueId = readUInt64(device, key: kIOHIDLocationIDKey) ?? UInt64(productId)
+        // Prefer the IOKit LocationID (unique per physical port per boot).
+        // When the device doesn't expose it — happens on some hubs and on
+        // certain virtual interfaces — fall back to a salt that combines
+        // productId with the enumeration ordinal, so two identical
+        // keyboards still surface as distinct rows in the picker.
+        let salted = (UInt64(productId) << 32) | (ordinal + 1)
+        let uniqueId = readUInt64(device, key: kIOHIDLocationIDKey) ?? salted
         return DiscoveredDevice(
             productId: productId,
             vendorId: vendorId,

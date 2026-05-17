@@ -22,12 +22,19 @@ struct HIDPacketEntry: Identifiable, Equatable {
     let interpretation: String
 
     init(id: UUID = UUID(), timestamp: Date = Date(), deviceName: String, productId: UInt32, bytes: [UInt8]) {
+        // Protocol invariant: every legitimate HID write is 32 bytes
+        // (`HIDLink.reportSize`). A surprise length means either the
+        // sender violated the wire contract or someone fed us a synthetic
+        // packet. Assert in debug so protocol drift surfaces during
+        // testing; in release we accept whatever we get so the inspector
+        // can still display malformed traffic instead of crashing.
+        assert(bytes.count == 32, "HIDPacketEntry expects 32-byte reports, got \(bytes.count)")
         self.id = id
         self.timestamp = timestamp
         self.deviceName = deviceName
         self.productId = productId
         self.bytes = bytes
-        self.interpretation = Self.interpret(bytes)
+        interpretation = Self.interpret(bytes)
     }
 
     /// Pure mapping from packet bytes to a one-line label. Lives next to the
@@ -42,8 +49,13 @@ struct HIDPacketEntry: Identifiable, Equatable {
             let idx = bytes.dropFirst().first ?? 0
             return "layout \(idx == 0 ? "EN" : "RU") (idx=\(idx))"
         case 0xB0:
-            // _OS_TYPE — 4-byte ASCII OS magic at bytes[1..5].
-            let magic = String(bytes: Array(bytes.dropFirst().prefix(3)), encoding: .ascii) ?? "?"
+            // _OS_TYPE — 4-byte ASCII OS magic at bytes[1...4] (e.g. `MAC\0`
+            // from `HIDLink.osMagicMac`). We take 4 bytes and strip the
+            // trailing null for display; a future non-null-terminated magic
+            // (`LNX1`, etc.) would survive as 4 characters intact.
+            let raw = Array(bytes.dropFirst().prefix(4))
+            let stripped = raw.prefix { $0 != 0 }
+            let magic = String(bytes: Array(stripped), encoding: .ascii) ?? "?"
             return "OS handshake \"\(magic)\""
         default:
             return String(format: "unknown data_type 0x%02X", dataType)
