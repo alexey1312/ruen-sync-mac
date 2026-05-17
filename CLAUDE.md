@@ -227,6 +227,18 @@ real recompile and surfaces the actual diagnostics.
 - `NSWorkspace.shared.notificationCenter` ≠ `NotificationCenter.default` —
   subscribing to the latter for workspace events is a silent no-op.
 
+### Process + Pipe gotcha
+
+`Process` + `Pipe()` deadlocks once the child writes more than the
+pipe buffer (~64 KB on macOS) if you `waitUntilExit()` before reading
+the pipes — child blocks on `write()`, parent blocks on wait, nobody
+makes progress. `log show --info --last 1h` routinely crosses that
+threshold. Drain stdout AND stderr concurrently before waiting —
+`Diagnostics.runShell` is the canonical pattern: `async throws`
+function that fires two `Task.detached { readDataToEndOfFile() }`
+reads, awaits them both, then calls `waitUntilExit()` purely to read
+`terminationStatus`.
+
 ### Launching the debug build
 
 `tuist run RuEnSync` fails with _"no suitable device for macOS"_ on Tuist 4.56
@@ -248,6 +260,12 @@ Or open the generated workspace in Xcode and ⌘R.
 - Tests use the new `Testing` framework (`@Suite`, `@Test`, `#expect`), not XCTest.
 - Logger calls go through `Log.<category>` from `Logger.swift`. Always use the
   `os.Logger` API with `privacy:` annotations on interpolated values.
+- SwiftUI row views that need a `guard let` against an array-index lookup
+  (e.g. `model.config.devices[safe: index]`) should use `@ViewBuilder var body`
+  + `if let`, NOT `AnyView(EmptyView()) / AnyView(HStack{…})`. The `AnyView`
+  form erases types and disables SwiftUI's view-update fast path; we fixed
+  three copies in `SettingsAppRulesTab` / `SettingsDevicesTab` /
+  `SettingsLayoutsTab` during the feat/auto-yield review pass.
 
 ### Tests and persistent state
 
@@ -304,3 +322,14 @@ Or open the generated workspace in Xcode and ⌘R.
   is hardcoded to `0xFF60 / 0x61`. Changing these means we won't find any keyboards.
 - `LSUIElement = true` in Info.plist. Removing it makes the Dock icon appear, which
   defeats the whole "menubar agent" point.
+
+## Fetching PR review comments
+
+`gh pr view N --comments` shows only top-level comments — `gemini-code-assist`
+(and any human inline reviewer) writes per-line review comments that live on a
+different endpoint. Use:
+
+```bash
+gh api repos/alexey1312/ruen-sync-mac/pulls/<N>/comments \
+  --jq '.[] | {path, line, body, user: .user.login}'
+```
