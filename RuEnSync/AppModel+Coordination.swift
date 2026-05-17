@@ -131,4 +131,34 @@ extension AppModel {
         }
         applyNewConfig(updated)
     }
+
+    // MARK: Auto-discovery
+
+    /// Synchronously polls IOKit for QMK Raw HID interfaces and adds every
+    /// discovered device to the config. No-op if nothing is plugged in —
+    /// the user can plug the keyboard in afterwards and open Settings →
+    /// Devices → Scan to re-run discovery manually.
+    func autoDiscoverDevices() {
+        let found = DeviceDiscovery.scan()
+        guard !found.isEmpty else {
+            Log.app.info("auto-discovery: no QMK Raw HID devices visible at launch")
+            return
+        }
+        Log.app.info("auto-discovery: seeded \(found.count, privacy: .public) device(s)")
+        config.devices = found.map { discovered in
+            Config.Device(
+                name: discovered.displayName,
+                productId: discovered.productIdHex,
+                usagePage: nil,
+                usage: nil
+            )
+        }
+        // Persist so subsequent launches don't re-scan, and so a manual
+        // edit in Settings has something to start from.
+        do {
+            try ConfigStore.save(config)
+        } catch {
+            Log.config.error("auto-discovery save failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 }

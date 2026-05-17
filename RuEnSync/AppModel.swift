@@ -108,10 +108,24 @@ final class AppModel {
             self?.applyNewConfig(newConfig)
         }
 
+        // First-time auto-discovery: if `devices` is empty AND we've never
+        // run the scanner before, run it now and seed config with whatever
+        // we find. The flag prevents resurrecting devices a user later
+        // removes on purpose — without it, deleting the last device would
+        // immediately re-add it on the next launch.
+        if config.devices.isEmpty, !UserDefaults.standard.bool(forKey: Self.autoDiscoveryRanKey) {
+            autoDiscoverDevices()
+            UserDefaults.standard.set(true, forKey: Self.autoDiscoveryRanKey)
+        }
+
         if yieldedTo == nil {
             buildAndStartLinks()
         }
     }
+
+    /// UserDefaults key for the first-run auto-discovery flag. Public so a
+    /// future Settings "Re-run auto-discovery" button can clear it.
+    static let autoDiscoveryRanKey = "ruensync.autoDiscoveryRan"
 
     /// Tears down all HID links and rebuilds them. Wired to the "Reconnect"
     /// menubar button: lets users recover after killing a conflicting daemon

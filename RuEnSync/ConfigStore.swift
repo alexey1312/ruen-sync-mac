@@ -61,9 +61,11 @@ struct Config: Codable, Equatable {
     var debug: Debug?
 
     static let `default` = Config(
-        devices: [
-            .init(name: "Corne", productId: "0x0001", usagePage: nil, usage: nil),
-        ],
+        // No baked-in device list. The very first launch runs auto-discovery
+        // (see `AppModel.start`); shipping a sample device that's only valid
+        // for one user's keyboard sent everyone else into a misleading
+        // "Corne — not connected" state.
+        devices: [],
         layouts: ["ABC", "Russian"],
         appLayoutRules: nil,
         appLayoutSwitchingEnabled: nil,
