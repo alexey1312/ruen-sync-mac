@@ -7,7 +7,8 @@ import os
 
 /// Owns an `IOHIDManager` filtered to the configured Raw HID interface
 /// (UsagePage 0xFF60, Usage 0x61, ProductID = config.productId). Sends one
-/// 33-byte Output Report per layout change. Bit-for-bit identical to
+/// 32-byte Output Report per layout change (see `reportSize`; CLAUDE.md §4
+/// has the full byte-count rationale). Bit-for-bit identical to
 /// qmk-hid-host's wire format for `_LAYOUT`, so any unmodified Vial-QMK
 /// firmware listening for `[0xAC, idx, …]` accepts our packets.
 ///
@@ -52,6 +53,12 @@ final class HIDLink {
 
     private(set) var state: State = .offline(reason: .awaitingDevice)
     var onStateChange: ((State) -> Void)?
+
+    /// When non-nil and `inspectionEnabled` is true, every successful
+    /// `send` copies the 32-byte report into the log. Both fields are set
+    /// by AppModel — HIDLink doesn't read the config directly.
+    var packetLog: HIDPacketLog?
+    var inspectionEnabled: Bool = false
 
     // MARK: Configuration
 
@@ -200,6 +207,12 @@ final class HIDLink {
         if result == kIOReturnSuccess {
             let pid = String(format: "0x%04X", device.productId)
             Log.hid.info("sent \(label, privacy: .public) to pid=\(pid, privacy: .public)")
+            // Inspection log: gated on a per-link flag rather than a per-send
+            // config lookup so the hot path stays cheap. AppModel flips the
+            // flag on every config reload to keep it in sync.
+            if inspectionEnabled, let packetLog {
+                packetLog.record(deviceName: device.name, productId: device.productId, bytes: buffer)
+            }
             return true
         }
         let code = String(format: "0x%08X", result)
@@ -318,17 +331,18 @@ extension HIDLink {
 
 extension HIDLink.OfflineReason {
     /// Human-readable label for the menubar. Kept short — surfaces in a
-    /// secondary-color caption row, not a sentence.
+    /// secondary-color caption row, not a sentence. Localized via the
+    /// String catalog so non-English macOS users get a native label.
     var menuLabel: String {
         switch self {
         case .awaitingDevice:
-            "Not connected"
+            String(localized: "Not connected")
         case .exclusiveAccess:
-            "Device busy (qmk-hid-host running?)"
+            String(localized: "Device busy (qmk-hid-host running?)")
         case let .openFailed(code):
-            "Open failed (\(String(format: "0x%08X", code)))"
+            String(localized: "Open failed (\(String(format: "0x%08X", code)))")
         case let .managerOpenFailed(code):
-            "HID manager open failed (\(String(format: "0x%08X", code)))"
+            String(localized: "HID manager open failed (\(String(format: "0x%08X", code)))")
         }
     }
 

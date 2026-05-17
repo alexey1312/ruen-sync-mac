@@ -11,8 +11,35 @@ struct RuEnSyncApp: App {
     @State private var updater = Updater()
 
     init() {
-        let config = ConfigStore.loadOrSeedDefaults()
-        let model = AppModel(config: config)
+        // Classify the on-disk config before deciding whether to seed the
+        // default OR run auto-discovery. The three outcomes are deliberately
+        // separated: a corrupt file must NOT be replaced silently, and
+        // first-run auto-discovery must NOT fire on top of a corrupt file
+        // (which would overwrite the recoverable bad config with a
+        // discovered-devices shell).
+        let result = ConfigStore.load()
+        let config: Config
+        var initialError: String?
+        var allowAutoDiscovery = true
+        switch result {
+        case let .loaded(loaded):
+            config = loaded
+        case .missing:
+            ConfigStore.seedDefaultIfMissing()
+            config = .default
+        case let .corrupt(error):
+            config = .default
+            allowAutoDiscovery = false
+            initialError =
+                String(
+                    localized: "Config file at \(ConfigStore.configURL.path) failed to load: \(error.localizedDescription). Running with defaults until you fix or remove it."
+                )
+            Log.config.error(
+                "startup: refusing to overwrite corrupt config at \(ConfigStore.configURL.path, privacy: .public)"
+            )
+        }
+        let model = AppModel(config: config, allowAutoDiscoverySeed: allowAutoDiscovery)
+        model.lastSettingsError = initialError
         _model = State(initialValue: model)
         // Register as a login item on first launch. Idempotent — SMAppService
         // is safe to call repeatedly.
@@ -27,6 +54,22 @@ struct RuEnSyncApp: App {
             MenuLabel(model: model)
         }
         .menuBarExtraStyle(.menu)
+
+        // Standalone window for the HID Inspector. `defaultSize` keeps the
+        // window non-zero on first show; subsequent positions/sizes are
+        // remembered by AppKit via `Restorable`. Identified by id so the
+        // menubar can pop it open with `@Environment(\.openWindow)`.
+        Window("HID Inspector", id: "hid-inspector") {
+            HIDInspectorView(packetLog: model.packetLog)
+        }
+        .defaultSize(width: 640, height: 480)
+        .windowResizability(.contentMinSize)
+
+        // Standard macOS Preferences/Settings window — wired to Cmd+,
+        // and to the "Settings…" menubar item.
+        Settings {
+            SettingsView(model: model)
+        }
     }
 }
 
@@ -145,6 +188,8 @@ private struct MenuContent: View {
     let model: AppModel
     let updater: Updater
     @State private var showActivity = false
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Text("RuEnSync")
@@ -152,15 +197,28 @@ private struct MenuContent: View {
 
         Divider()
 
-        if model.deviceStatuses.isEmpty {
+        if let yieldedTo = model.yieldedTo {
+            // Yielded state takes the whole device-list slot — there's no
+            // useful per-device status while we're not even trying to open
+            // the endpoint. "Resume anyway" is escape-hatch for users whose
+            // conflicting app is already done but didn't quit (background
+            // tab, hidden window).
+            Label("Paused — \(yieldedTo) is running", systemImage: "pause.circle.fill")
+            Text("RuEnSync released the keyboard so \(yieldedTo) can use it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Resume anyway") {
+                model.forceResume()
+            }
+        } else if model.deviceStatuses.isEmpty {
             Label("No device configured", systemImage: "keyboard.badge.ellipsis")
         } else {
             ForEach(model.deviceStatuses) { status in
-                DeviceRow(status: status)
+                MenubarDeviceRow(status: status)
             }
         }
 
-        if model.isAnyDeviceConnected {
+        if model.yieldedTo == nil, model.isAnyDeviceConnected {
             Text("Layout: \(model.languageLabel)")
         }
 
@@ -192,12 +250,51 @@ private struct MenuContent: View {
         }
         .keyboardShortcut("r")
 
+        // Quick toggle for per-app switching, mirroring the
+        // `appLayoutSwitchingEnabled` flag in config.json. Only shown when
+        // at least one rule exists — otherwise the toggle would be a no-op
+        // and adds confusing surface area. Persists through `editConfig` so
+        // the choice survives quit/relaunch — the menubar and the Settings
+        // checkbox share the same on-disk state.
+        if model.hasAppLayoutRules {
+            Toggle("Auto-switch by app", isOn: Binding(
+                get: { model.appLayoutSwitchingEnabled },
+                set: { newValue in
+                    model.editConfig { $0.appLayoutSwitchingEnabled = newValue }
+                }
+            ))
+        }
+
+        Button("Settings…") {
+            // SwiftUI's Settings scene doesn't always bring its window to
+            // front for menubar apps — explicitly activating ensures the
+            // window appears in front of the active app's windows.
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
+        }
+        .keyboardShortcut(",")
+
         Button("Open config…") {
             NSWorkspace.shared.activateFileViewerSelecting([ConfigStore.configURL])
         }
 
         Button("Open log…") {
             openLogStream()
+        }
+
+        Divider()
+
+        Menu("Debug") {
+            Button("HID Inspector…") {
+                openWindow(id: "hid-inspector")
+            }
+            Button("Export diagnostics…") {
+                Task {
+                    let packetLog = model.packetLog
+                    let result = await Diagnostics.exportZip(packetLog: packetLog)
+                    Diagnostics.handleExportResult(result, surfaceTo: model)
+                }
+            }
         }
 
         Divider()
@@ -251,69 +348,5 @@ private struct MenuContent: View {
     }
 }
 
-// MARK: - Updates
-
-/// Menu item that triggers Sparkle's update check. We can't bind directly to
-/// `updater.canCheckForUpdates` because Sparkle's `SPUUpdater` is KVO-based,
-/// not `@Observable`; the view-model in `Updater.swift` bridges KVO into
-/// `@Published`, which SwiftUI's `@StateObject` knows how to track. This is
-/// the pattern Sparkle's own SwiftUI docs recommend.
-///
-/// `@StateObject` rather than `@ObservedObject`: this view owns the lifetime
-/// of `CheckForUpdatesViewModel`. With `@ObservedObject`, a parent re-render
-/// would rebuild the VM (and its KVO subscription), silently breaking the
-/// disable-while-checking behaviour.
-private struct CheckForUpdatesMenuItem: View {
-    let updater: Updater
-    @StateObject private var checker: CheckForUpdatesViewModel
-
-    init(updater: Updater) {
-        self.updater = updater
-        _checker = StateObject(wrappedValue: CheckForUpdatesViewModel(updater: updater.updater))
-    }
-
-    var body: some View {
-        Button("Check for Updates…") {
-            updater.checkForUpdates()
-        }
-        .disabled(!checker.canCheckForUpdates)
-    }
-}
-
-// MARK: - Device row
-
-private struct DeviceRow: View {
-    let status: AppModel.DeviceStatus
-
-    var body: some View {
-        Label(status.summary, systemImage: symbol)
-        Text("Product ID: \(status.productIdLabel)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-    }
-
-    private var symbol: String {
-        switch status.state {
-        case .connected: "keyboard.fill"
-        case let .offline(reason):
-            switch reason {
-            case .exclusiveAccess: "exclamationmark.triangle.fill"
-            case .openFailed, .managerOpenFailed: "xmark.octagon"
-            case .awaitingDevice: "keyboard.badge.ellipsis"
-            }
-        }
-    }
-}
-
-// MARK: - Activity row
-
-private struct ActivityRow: View {
-    let entry: ActivityEntry
-
-    var body: some View {
-        // One menu item per entry. Native .menu sub-menus don't let us put
-        // arbitrary multi-line views inside a row, so we lean on Label's
-        // built-in icon + headline layout and put the timestamp on the line.
-        Label("\(entry.kind.headline) — \(entry.relativeTimestamp())", systemImage: entry.kind.symbol)
-    }
-}
+// `CheckForUpdatesMenuItem`, `DeviceRow`, `ActivityRow` moved to
+// `MenuBarViews.swift` so this file stays under the 400-line lint cap.

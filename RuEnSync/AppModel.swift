@@ -25,14 +25,43 @@ final class AppModel {
     private(set) var layoutIndex: UInt8?
 
     /// Per-device status. Empty if config has no usable devices.
-    private(set) var deviceStatuses: [DeviceStatus] = []
+    /// Writer is `internal` (not `private(set)`) so the coordination
+    /// extension in another file can mutate; we keep the convention of
+    /// writing through AppModel methods to preserve the @Observable contract.
+    var deviceStatuses: [DeviceStatus] = []
+
+    /// Name of the conflicting app we've yielded the HID device to, or `nil`
+    /// when we're operating normally. While non-nil all HID links are stopped
+    /// and no reconnect attempts are scheduled — we sit out until the app
+    /// quits and ConflictWatcher fires `onConflictCleared`.
+    var yieldedTo: String?
+
+    /// Last surfacable error to show in the Settings window as an inline
+    /// banner — disk-full saves, corrupt config detected, etc. `nil` when
+    /// nothing is wrong. Cleared by the UI once the user has seen it.
+    /// Surfaced here (not just logged) because the user has no other way to
+    /// know that their edit didn't take.
+    var lastSettingsError: String?
 
     /// Recent events, newest first. UI binds to this for the activity panel.
     let activity = ActivityStore()
 
-    private let config: Config
-    private var hidLinks: [HIDLink] = []
-    private let layoutWatcher: LayoutWatcher
+    /// Ring-buffer of recent HID writes, surfaced by the Debug → HID
+    /// Inspector window. Bound to `Config.Debug.hidInspector` — empty when
+    /// the flag is off.
+    let packetLog = HIDPacketLog()
+
+    // `internal` access (not `private`) so the coordination extension in
+    // AppModel+Coordination.swift can read/write these. Swift's `private`
+    // is per-type-per-file; extensions across files need at least internal.
+    var config: Config
+    var hidLinks: [HIDLink] = []
+    let layoutWatcher: LayoutWatcher
+    let conflictWatcher = ConflictWatcher()
+    let appContextWatcher = AppContextWatcher()
+    /// Held to keep the file-watcher alive — releasing it would cancel
+    /// the DispatchSource and stop reloads.
+    var configWatch: DispatchSourceFileSystemObject?
 
     /// Background task that retries `reconnectAll()` while any link is offline
     /// for a recoverable reason. `nil` when no retry is pending. Cancelled the
@@ -43,8 +72,16 @@ final class AppModel {
     /// backoff if it wants.
     private var reconnectAttempt: Int = 0
 
-    init(config: Config) {
+    /// When false, `start()` skips the first-run auto-discovery seed. We use
+    /// this when the config file is present but failed to decode: discovering
+    /// devices then would call `ConfigStore.save`, which would overwrite the
+    /// recoverable bad file with an empty shell and silently lose all of the
+    /// user's existing rules / device names / debug settings.
+    private let allowAutoDiscoverySeed: Bool
+
+    init(config: Config, allowAutoDiscoverySeed: Bool = true) {
         self.config = config
+        self.allowAutoDiscoverySeed = allowAutoDiscoverySeed
         layoutWatcher = LayoutWatcher(layouts: config.layouts)
     }
 
@@ -63,14 +100,79 @@ final class AppModel {
             }
         }
         layoutWatcher.start()
-        buildAndStartLinks()
+
+        // Conflict watcher is started BEFORE buildAndStartLinks so that an
+        // already-running Vial/QMK Toolbox seeds `yieldedTo` synchronously
+        // (handleConflictAppeared runs from inside conflictWatcher.start()
+        // when the seed scan finds a running app). We then skip the initial
+        // buildAndStartLinks(); resume happens later via onConflictCleared.
+        conflictWatcher.onConflictAppeared = { [weak self] name in
+            self?.handleConflictAppeared(appName: name)
+        }
+        conflictWatcher.onConflictCleared = { [weak self] in
+            self?.handleConflictCleared()
+        }
+        conflictWatcher.start()
+
+        appContextWatcher.onAppActivated = { [weak self] bundleId in
+            // Watcher already filters nil bundle IDs internally; the
+            // remaining check inside `handleAppActivated` is for the
+            // master-switch and rule-presence guards.
+            self?.handleAppActivated(bundleId: bundleId)
+        }
+        appContextWatcher.start()
+
+        configWatch = ConfigStore.watch { [weak self] result in
+            self?.handleConfigEvent(result)
+        }
+
+        // First-time auto-discovery: if `devices` is empty AND we've never
+        // run the scanner before, run it now and seed config with whatever
+        // we find. The flag prevents resurrecting devices a user later
+        // removes on purpose — without it, deleting the last device would
+        // immediately re-add it on the next launch.
+        //
+        // Suppressed entirely when the initial load was corrupt: writing a
+        // discovered-devices shell over a recoverable bad file would erase
+        // the user's intent.
+        if allowAutoDiscoverySeed,
+           config.devices.isEmpty,
+           !UserDefaults.standard.bool(forKey: Self.autoDiscoveryRanKey)
+        {
+            // Only mark "ran" if the save succeeded — otherwise next launch
+            // should retry instead of stranding the user with empty devices
+            // and a UserDefaults flag that prevents any further attempt.
+            if autoDiscoverDevices() {
+                UserDefaults.standard.set(true, forKey: Self.autoDiscoveryRanKey)
+            }
+        }
+
+        if yieldedTo == nil {
+            buildAndStartLinks()
+        }
     }
+
+    /// UserDefaults key for the first-run auto-discovery flag. Public so a
+    /// future Settings "Re-run auto-discovery" button can clear it.
+    static let autoDiscoveryRanKey = "ruensync.autoDiscoveryRan"
 
     /// Tears down all HID links and rebuilds them. Wired to the "Reconnect"
     /// menubar button: lets users recover after killing a conflicting daemon
     /// (typically qmk-hid-host) without restarting the whole app.
+    ///
+    /// While `yieldedTo != nil` this is a no-op except for the activity
+    /// record — manual reconnect while paused for Vial would just race the
+    /// running Vial and lose. Users wanting to forcibly retake the device
+    /// must use `forceResume()` (which clears `yieldedTo` first).
     func reconnectAll() {
         activity.record(.reconnectTriggered)
+        if let yielded = yieldedTo {
+            // Bind to local to avoid the swiftformat "remove redundant self"
+            // pass eating the `self.yieldedTo` that Logger's @autoclosure
+            // requires inside an escaping context.
+            Log.app.info("reconnect ignored — yielded to \(yielded, privacy: .public)")
+            return
+        }
         for link in hidLinks {
             link.stop()
         }
@@ -100,7 +202,8 @@ final class AppModel {
         }
     }
 
-    private func cancelReconnectTask() {
+    /// internal so AppModel+Coordination can cancel before yielding.
+    func cancelReconnectTask() {
         reconnectTask?.cancel()
         reconnectTask = nil
     }
@@ -129,7 +232,8 @@ final class AppModel {
         return .milliseconds(min(delayMS, capMS))
     }
 
-    private func buildAndStartLinks() {
+    /// internal so AppModel+Coordination can rebuild after resume/config change.
+    func buildAndStartLinks() {
         let resolved = config.devices.compactMap(ResolvedDevice.init)
         if resolved.isEmpty {
             Log.app.error("no usable device in config — running in observe-only mode")
@@ -148,13 +252,27 @@ final class AppModel {
             )
         }
 
+        let inspectionEnabled = config.effectiveHidInspectorEnabled
         for link in hidLinks {
+            link.packetLog = packetLog
+            link.inspectionEnabled = inspectionEnabled
             link.onStateChange = { [weak self, weak link] newState in
                 guard let self, let link else { return }
                 guard let idx = hidLinks.firstIndex(where: { $0 === link }) else { return }
                 handleLinkStateChange(idx: idx, state: newState)
             }
             link.start()
+        }
+    }
+
+    /// Re-applies the `hidInspector` flag to every live HID link. Called
+    /// from the coordination extension after a config reload so toggling
+    /// `"debug": { "hidInspector": true }` in config.json takes effect
+    /// without needing to reconnect (which would interrupt typing).
+    func refreshInspectionFlag() {
+        let enabled = config.effectiveHidInspectorEnabled
+        for link in hidLinks {
+            link.inspectionEnabled = enabled
         }
     }
 
@@ -220,69 +338,5 @@ final class AppModel {
     }
 }
 
-// MARK: - Display helpers
-
-extension AppModel {
-    /// Short language label (`EN`, `RU`, or `—` when status is unknown).
-    var languageLabel: String {
-        switch layoutIndex {
-        case .some(0): "EN"
-        case .some: "RU"
-        case .none: "—"
-        }
-    }
-
-    /// True iff any configured device is currently connected. Derived from
-    /// `deviceStatuses`; no shadow field to keep in sync.
-    var isAnyDeviceConnected: Bool {
-        deviceStatuses.contains { if case .connected = $0.state { true } else { false } }
-    }
-
-    /// Top-level human-readable status — used when there's a single device or
-    /// no devices, otherwise the UI iterates `deviceStatuses` directly.
-    var connectionDescription: String {
-        Self.describe(deviceStatuses)
-    }
-
-    /// Pure, testable formatter for the aggregate status line.
-    static func describe(_ statuses: [DeviceStatus]) -> String {
-        if statuses.isEmpty {
-            return "No device configured"
-        }
-        if statuses.count == 1, let status = statuses.first {
-            return status.summary
-        }
-        let connectedCount = statuses.count(where: {
-            if case .connected = $0.state { return true }
-            return false
-        })
-        return "\(connectedCount) of \(statuses.count) connected"
-    }
-}
-
-extension AppModel.DeviceStatus {
-    /// e.g. "Corne — connected" / "Corne — device busy (qmk-hid-host running?)".
-    var summary: String {
-        switch state {
-        case .connected:
-            "\(name) — connected"
-        case let .offline(reason):
-            "\(name) — \(reason.menuLabel.lowercasedFirstLetter())"
-        }
-    }
-
-    var productIdLabel: String {
-        String(format: "0x%04X", productId)
-    }
-}
-
-// MARK: - String helper
-
-extension String {
-    /// Lowercases the first character. Used to splice `OfflineReason.menuLabel`
-    /// ("Not connected") into a sentence after "—" without double-capitalising.
-    func lowercasedFirstLetter() -> String {
-        guard let first else { return self }
-        return first.lowercased() + dropFirst()
-    }
-}
+// Display helpers (`languageLabel`, `DeviceStatus.summary`, …) live in
+// `AppModel+Display.swift` to keep this file under the 400-line lint cap.

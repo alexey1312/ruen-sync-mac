@@ -14,6 +14,18 @@ the active macOS input source. Event-driven (no polling), Login-Item managed,
 in-app auto-updates via Sparkle. Drop-in replacement for
 [qmk-hid-host](https://github.com/zzeneg/qmk-hid-host).
 
+**Highlights**
+
+- Auto-discovers QMK Raw HID keyboards on first launch — zero config needed
+  for the common case.
+- Native Settings window (⌘,) for devices, layouts, per-app rules, autostart,
+  and debug toggles.
+- Per-app layout switching: `Slack → RU`, `Xcode → EN`, etc., configured by
+  bundle ID (exact or prefix).
+- Auto-yields the keyboard when Vial or QMK Toolbox launches, so flashing
+  and reconfiguration "just work" without quitting RuEnSync first.
+- Russian-localized UI when macOS is set to Russian; otherwise English.
+
 ## Compatible firmware
 
 - [**split_keyboard_layouts**](https://github.com/alexey1312/split_keyboard_layouts) — this
@@ -60,49 +72,66 @@ they don't re-trigger this dialog.
 
 ## Configuration
 
-Lives at `~/.config/RuEnSync/config.json`. Auto-created on first launch:
+Most users won't need to touch a config file. On first launch RuEnSync scans
+for QMK Raw HID interfaces (UsagePage `0xFF60` / Usage `0x61`) and adds every
+match to its config automatically. Open the **Settings** window (⌘, or
+_menubar → Settings…_) to:
+
+- **General** — toggle "Launch at login" and master "Auto-switch by app".
+- **Devices** — see the auto-discovered list, rename, remove, or rescan.
+- **Layouts** — pick from enabled macOS input sources, reorder. The index of
+  the active layout in this list is the byte sent to the keyboard
+  (`0 → EN`, anything else → RU).
+- **App Rules** — map a bundle ID (exact or prefix) to a layout. Activating
+  the app programmatically switches the macOS input source, which then
+  propagates to the keyboard through the normal path.
+- **Debug** — turn on the HID packet ring-buffer + open the Inspector
+  window, or export a diagnostics zip for bug reports.
+
+### Manual edits — `~/.config/RuEnSync/config.json`
+
+Settings writes through to this file; you can also edit it directly and the
+app will pick up the change without a restart (file watcher). Schema:
 
 ```json
 {
   "devices": [{ "productId": "0x0001", "name": "Corne" }],
-  "layouts": ["ABC", "Russian"]
+  "layouts": ["ABC", "Russian"],
+  "appLayoutRules": [
+    { "bundleId": "com.apple.dt.Xcode", "layout": "ABC" },
+    { "bundleIdPrefix": "com.jetbrains.", "layout": "ABC" }
+  ],
+  "appLayoutSwitchingEnabled": true,
+  "debug": { "hidInspector": false }
 }
 ```
 
-- `devices` — one or more keyboards to sync. `productId` must match your
-  `vial.json` / QMK USB ID. Layout and Mac-flag packets are pushed to all of
-  them in parallel.
-- `layouts` — ordered list of `TISPropertyInputSourceID` suffixes. The index of
-  the active layout in this array is the byte sent to the keyboard (`0 → EN`,
-  anything else → RU).
-- `usagePage`, `usage` — optional, default to `0xFF60` / `0x61`.
-
-Using the Ilya Birman Typography Layout?
-
-```json
-{ "layouts": ["English-IlyaBirmanTypography", "Russian-IlyaBirmanTypography"] }
-```
-
-Discover your current input source's suffix:
-
-```bash
-defaults read com.apple.HIToolbox AppleSelectedInputSources
-# look at "KeyboardLayout Name"
-```
+- `usagePage`, `usage` per-device — optional, default `0xFF60` / `0x61`.
+- `appLayoutRules` — `bundleId` (exact) wins over `bundleIdPrefix`; among
+  prefixes, the longest match wins. Omit both fields to disable a rule
+  without deleting it.
+- Layout names are `TISPropertyInputSourceID` suffixes. To see what your
+  current input source is called: `defaults read com.apple.HIToolbox
+  AppleSelectedInputSources` and look at `"KeyboardLayout Name"`. The Ilya
+  Birman Typography Layout is `English-IlyaBirmanTypography` /
+  `Russian-IlyaBirmanTypography`.
 
 ## Device-busy conflicts
 
 macOS gives exclusive access to an HID device to one process at a time. When
 something else holds the lock, RuEnSync surfaces it in the menubar as
-**"Device busy (qmk-hid-host running?)"**. Two common culprits:
+**"Device busy (qmk-hid-host running?)"**. Common cases:
 
-- **Vial is open.** Vial (or Via) claims the device while its window is
-  active for live-configuration / firmware writes. Just close the Vial window
-  — RuEnSync's auto-reconnect picks the device back up within a couple of
-  seconds. No manual action needed.
+- **Vial or QMK Toolbox is open** — RuEnSync detects them by bundle ID
+  (`today.vial`, `fm.qmk.toolbox`) and **automatically releases the
+  keyboard** while either is running. The menubar shows "Paused — Vial is
+  running" with a _Resume anyway_ override; on quit the device is
+  re-acquired and the OS-handshake replay happens automatically. No manual
+  Reconnect needed.
 - **`qmk-hid-host` daemon is running.** The Rust daemon holds the device
-  permanently. Pick one: uninstall its LaunchAgent (or `pkill qmk-hid-host`)
-  and hit **Reconnect** in the RuEnSync menu.
+  permanently and we don't detect it as a yieldable app. Pick one: uninstall
+  its LaunchAgent (or `pkill qmk-hid-host`) and hit **Reconnect** in the
+  RuEnSync menu.
 
 ## Troubleshooting
 
@@ -116,15 +145,24 @@ The menubar's **Activity** sub-menu also shows the most recent layout
 switches, connects, and `_OS_TYPE` handshake results. History persists in
 `~/.config/RuEnSync/activity.db`.
 
+For richer bug reports, _Settings → Debug → Export diagnostics…_ bundles
+the last hour of logs, the current config, the activity DB, and (when the
+inspector is on) the recent HID packet buffer into a single zip in
+`~/Downloads`.
+
 Common issues:
 
-- **Menubar shows `—`** — keyboard isn't connected, or `productId` in config
-  doesn't match. Check `ioreg -p IOUSB | grep -i corne`.
-- **Wrong punctuation in Russian** — your `layouts` array doesn't contain the
-  active input source's suffix; run the `defaults read` command above.
-- **App doesn't start at login** — toggle the entry in _System Settings →
-  General → Login Items_. `SMAppService` sometimes needs an explicit user
-  confirmation.
+- **Menubar pill is outlined / "No device configured"** — auto-discovery
+  didn't find anything. Plug the keyboard in, then _Settings → Devices →
+  Scan…_. If nothing shows up, confirm the firmware exposes UsagePage
+  `0xFF60` / Usage `0x61` (`ioreg -p IOUSB`).
+- **Wrong punctuation in Russian** — your `layouts` array doesn't contain
+  the active input source's suffix; either add it via _Settings → Layouts_
+  or edit config.json directly.
+- **App doesn't start at login** — toggle _Launch at login_ in
+  _Settings → General_, or check the entry in _System Settings → General →
+  Login Items_. `SMAppService` sometimes needs an explicit user
+  confirmation after register.
 
 ## Contributing
 

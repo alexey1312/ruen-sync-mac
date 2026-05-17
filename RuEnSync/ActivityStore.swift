@@ -14,6 +14,12 @@ enum ActivityKind: Equatable {
     case osHandshakeSent(name: String)
     case osHandshakeFailed(name: String)
     case reconnectTriggered
+    case yieldedToApp(name: String)
+    case resumedAfterApp(name: String)
+    case appLayoutOverride(bundleId: String, layoutName: String)
+    case appLayoutOverrideFailed(bundleId: String, layoutName: String, reason: String)
+    case configReloaded
+    case configInvalid
 
     /// SF Symbol name for the row icon. Picked so the icon alone gives the
     /// user a rough idea of severity (`xmark.*` = bad, `arrow.triangle.*` =
@@ -27,19 +33,48 @@ enum ActivityKind: Equatable {
         case .osHandshakeSent: "checkmark.seal.fill"
         case .osHandshakeFailed: "xmark.seal.fill"
         case .reconnectTriggered: "arrow.clockwise"
+        case .yieldedToApp: "pause.circle.fill"
+        case .resumedAfterApp: "play.circle.fill"
+        case .appLayoutOverride: "app.badge.fill"
+        case .appLayoutOverrideFailed: "exclamationmark.app.fill"
+        case .configReloaded: "doc.badge.gearshape"
+        case .configInvalid: "doc.badge.ellipsis"
         }
     }
 
     /// Short headline shown in the activity row. Single sentence, no period.
+    /// Localized via the String catalog. Interpolated values keep their
+    /// position with explicit `%1$@` / `%2$@` placeholders in Russian to
+    /// preserve word order (Russian places the subject before "connected"
+    /// but after "Resumed after", etc. — see the catalog).
     var headline: String {
         switch self {
-        case let .layoutChanged(label): "Layout → \(label)"
-        case let .deviceConnected(name): "\(name) connected"
-        case let .deviceDisconnected(name, reason): "\(name) disconnected — \(reason.lowercasedFirstLetter())"
-        case let .deviceOfflineReasonChanged(name, reason): "\(name) — \(reason.lowercasedFirstLetter())"
-        case let .osHandshakeSent(name): "MAC handshake → \(name)"
-        case let .osHandshakeFailed(name): "MAC handshake failed → \(name)"
-        case .reconnectTriggered: "Reconnect triggered"
+        case let .layoutChanged(label):
+            String(localized: "Layout → \(label)")
+        case let .deviceConnected(name):
+            String(localized: "\(name) connected")
+        case let .deviceDisconnected(name, reason):
+            String(localized: "\(name) disconnected — \(reason.lowercasedFirstLetter())")
+        case let .deviceOfflineReasonChanged(name, reason):
+            String(localized: "\(name) — \(reason.lowercasedFirstLetter())")
+        case let .osHandshakeSent(name):
+            String(localized: "MAC handshake → \(name)")
+        case let .osHandshakeFailed(name):
+            String(localized: "MAC handshake failed → \(name)")
+        case .reconnectTriggered:
+            String(localized: "Reconnect triggered")
+        case let .yieldedToApp(name):
+            String(localized: "Yielded to \(name)")
+        case let .resumedAfterApp(name):
+            String(localized: "Resumed after \(name)")
+        case let .appLayoutOverride(bundleId, layoutName):
+            String(localized: "\(bundleId) → \(layoutName)")
+        case let .appLayoutOverrideFailed(bundleId, layoutName, reason):
+            String(localized: "\(bundleId) → \(layoutName) — \(reason)")
+        case .configReloaded:
+            String(localized: "Config reloaded")
+        case .configInvalid:
+            String(localized: "Config invalid — keeping previous")
         }
     }
 }
@@ -73,6 +108,23 @@ extension ActivityKind {
             .init(discriminator: "osHandshakeFailed", deviceName: name, reason: nil, label: nil)
         case .reconnectTriggered:
             .init(discriminator: "reconnectTriggered", deviceName: nil, reason: nil, label: nil)
+        case let .yieldedToApp(name):
+            .init(discriminator: "yieldedToApp", deviceName: name, reason: nil, label: nil)
+        case let .resumedAfterApp(name):
+            .init(discriminator: "resumedAfterApp", deviceName: name, reason: nil, label: nil)
+        case let .appLayoutOverride(bundleId, layoutName):
+            // We reuse `deviceName` for the bundle ID and `label` for the
+            // target layout — both are sendable strings, and adding a new
+            // column would require an ALTER TABLE. Round-trip is exact.
+            .init(discriminator: "appLayoutOverride", deviceName: bundleId, reason: nil, label: layoutName)
+        case let .appLayoutOverrideFailed(bundleId, layoutName, reason):
+            // Same column reuse as `.appLayoutOverride`, with the existing
+            // `reason` slot carrying the failure mode — no schema change.
+            .init(discriminator: "appLayoutOverrideFailed", deviceName: bundleId, reason: reason, label: layoutName)
+        case .configReloaded:
+            .init(discriminator: "configReloaded", deviceName: nil, reason: nil, label: nil)
+        case .configInvalid:
+            .init(discriminator: "configInvalid", deviceName: nil, reason: nil, label: nil)
         }
     }
 
@@ -104,6 +156,22 @@ extension ActivityKind {
             self = .osHandshakeFailed(name: deviceName)
         case "reconnectTriggered":
             self = .reconnectTriggered
+        case "yieldedToApp":
+            guard let deviceName else { return nil }
+            self = .yieldedToApp(name: deviceName)
+        case "resumedAfterApp":
+            guard let deviceName else { return nil }
+            self = .resumedAfterApp(name: deviceName)
+        case "appLayoutOverride":
+            guard let deviceName, let label else { return nil }
+            self = .appLayoutOverride(bundleId: deviceName, layoutName: label)
+        case "appLayoutOverrideFailed":
+            guard let deviceName, let label, let reason else { return nil }
+            self = .appLayoutOverrideFailed(bundleId: deviceName, layoutName: label, reason: reason)
+        case "configReloaded":
+            self = .configReloaded
+        case "configInvalid":
+            self = .configInvalid
         default:
             return nil
         }

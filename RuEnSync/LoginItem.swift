@@ -28,14 +28,26 @@ enum LoginItem {
         }
     }
 
-    /// Unregister from login items. Not currently wired to UI, but kept here
-    /// so we don't go hunting later.
+    /// Unregister from login items. Wired to the Settings → General →
+    /// "Launch at login" toggle's off-path.
     static func unregister() {
         do {
             try SMAppService.mainApp.unregister()
             Log.app.info("unregistered from login items")
         } catch {
             Log.app.error("failed to unregister: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// True if the app is currently registered as a login item (status
+    /// `.enabled` or `.requiresApproval`). `.requiresApproval` counts as
+    /// "the user wanted it on, but System Settings is gating it" — keeping
+    /// the toggle visually-on matches user intent.
+    static var isEnabled: Bool {
+        switch SMAppService.mainApp.status {
+        case .enabled, .requiresApproval: true
+        case .notRegistered, .notFound: false
+        @unknown default: false
         }
     }
 }

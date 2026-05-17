@@ -100,13 +100,24 @@ final class ActivityDatabase {
 
     private func rowToEntry(_ row: Row) -> ActivityEntry? {
         guard let id = UUID(uuidString: row[Self.colID]) else { return nil }
+        let discriminator = row[Self.colKind]
         let kind = ActivityKind(
-            discriminator: row[Self.colKind],
+            discriminator: discriminator,
             deviceName: row[Self.colDeviceName],
             reason: row[Self.colReason],
             label: row[Self.colLabel]
         )
-        guard let kind else { return nil }
+        guard let kind else {
+            // Most likely cause: a row written by a future build whose
+            // discriminator this build doesn't know yet. Surface at
+            // `.warning` so it shows up in diagnostics exports without
+            // panicking the user.
+            Log.app
+                .warning(
+                    "ActivityDatabase: dropping row with unknown/incomplete kind '\(discriminator, privacy: .public)'"
+                )
+            return nil
+        }
         return ActivityEntry(
             id: id,
             timestamp: Date(timeIntervalSince1970: row[Self.colTimestamp]),

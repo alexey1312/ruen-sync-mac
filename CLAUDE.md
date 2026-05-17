@@ -109,6 +109,46 @@ Scripts/
    `"$(CURRENT_PROJECT_VERSION)"` in the `infoPlist:` dict so Xcode resolves
    them at compile time. See `Project.swift` Info.plist block.
 
+10. **`NSWindow.Level.floating` requires an NSViewRepresentable bridge.**
+    SwiftUI's `Window` scene doesn't expose `level` declaratively until macOS
+    15. Use a tiny `WindowConfigurator: NSViewRepresentable` in `.background(…)`
+    that grabs `view.window` from inside an async hop. See `HIDInspectorView`.
+
+11. **`String(localized:)` for non-SwiftUI strings.** SwiftUI's `Text`/`Button`/
+    `Toggle` auto-extract into `RuEnSync/Resources/Localizable.xcstrings`. For
+    code-formed strings (`OfflineReason.menuLabel`, `ActivityKind.headline`,
+    `DeviceStatus.summary`) wrap in `String(localized: "…")` so Xcode picks
+    them up. Russian translations use positional placeholders (`%1$@`, `%2$@`)
+    where word order differs from English.
+
+12. **First-run device discovery is gated by UserDefaults flag**
+    `ruensync.autoDiscoveryRan`. Without it, deleting the last device in
+    Settings would resurrect it on the next launch. The flag is set ONLY
+    after a successful `ConfigStore.save` — a save failure keeps the flag
+    clear so the next launch retries. The flag is one-time and has no
+    "reset" UI; to manually pick up newly-plugged keyboards, use Settings
+    → Devices → **Scan…**, which opens a picker showing all visible QMK
+    Raw HID devices and adds them one at a time.
+
+13. **`ConfigStore.load()` returns a `LoadResult` enum**
+    (`.loaded`/`.missing`/`.corrupt`). Never use the older
+    `loadOrSeedDefaults` path for new code: it conflates "first run" with
+    "user's config is broken", and the latter must NOT trigger
+    auto-discovery (which would then overwrite the recoverable bad file
+    with a discovered-devices shell). `AppModel(allowAutoDiscoverySeed:)`
+    is the gate; pass `false` when the load was `.corrupt`. The
+    file-watcher classifies events the same way and refuses to apply a
+    `.corrupt` decode — it surfaces `lastSettingsError` and records
+    `ActivityKind.configInvalid` instead of replacing the live config.
+
+14. **Self-write suppression in `ConfigStore.watch` uses a SHA stamp.**
+    The previous 500 ms time-window heuristic both let burst fsevents
+    leak through (logging duplicate `configReloaded`) and could swallow
+    fast external edits. `lastWrittenSHA` is stamped on every `save` /
+    `writeDefault` / clean `load`; the watcher compares the SHA of the
+    on-disk bytes against that stamp and only fires `onChange` for
+    foreign writes.
+
 ## Firmware contract
 
 The keyboard side is in [split_keyboard_layouts/firmware/](https://github.com/alexey1312/split_keyboard_layouts/tree/main/firmware).
@@ -165,6 +205,40 @@ Debug logs land in the unified log:
 log stream --predicate 'subsystem == "com.alexey1312.ruensync"' --info
 ```
 
+`mise run build` pipes through xcsift, which can show `status: success` while
+tuist's incremental cache silently skipped a file with a real compile error.
+If a behaviour change isn't showing up in the running app, `touch
+RuEnSync/<EditedFile>.swift && tuist build RuEnSync 2>&1 | tail -30` forces a
+real recompile and surfaces the actual diagnostics.
+
+### Live testing & debugging
+
+- Shell has an `alias log=…` (rtk wrapper). Use `/usr/bin/log` explicitly for
+  streams: `/usr/bin/log stream --predicate 'subsystem == "com.alexey1312.ruensync"' --level info --style compact`.
+- macOS doesn't persist `.info`-level entries by default — `log show --info`
+  after-the-fact misses them. Either start `log stream --level info` BEFORE
+  the run, or rely on `.error` for post-mortems.
+- `NSWorkspace.didTerminateApplicationNotification` arrives ~30 s after a
+  SIGTERM (`kill <pid>`) for GUI apps. For deterministic testing of
+  ConflictWatcher resume use `osascript -e 'tell application "Vial" to quit'`.
+- LaunchServices caches `.app` bundles by path. After `tuist build`, verify the
+  binary actually changed: `stat -f '%m %N' …/Debug/RuEnSync.app/Contents/MacOS/RuEnSync`
+  vs `date +%s`. If old, `touch` a swift source and rebuild.
+- `NSWorkspace.shared.notificationCenter` ≠ `NotificationCenter.default` —
+  subscribing to the latter for workspace events is a silent no-op.
+
+### Process + Pipe gotcha
+
+`Process` + `Pipe()` deadlocks once the child writes more than the
+pipe buffer (~64 KB on macOS) if you `waitUntilExit()` before reading
+the pipes — child blocks on `write()`, parent blocks on wait, nobody
+makes progress. `log show --info --last 1h` routinely crosses that
+threshold. Drain stdout AND stderr concurrently before waiting —
+`Diagnostics.runShell` is the canonical pattern: `async throws`
+function that fires two `Task.detached { readDataToEndOfFile() }`
+reads, awaits them both, then calls `waitUntilExit()` purely to read
+`terminationStatus`.
+
 ### Launching the debug build
 
 `tuist run RuEnSync` fails with _"no suitable device for macOS"_ on Tuist 4.56
@@ -186,6 +260,25 @@ Or open the generated workspace in Xcode and ⌘R.
 - Tests use the new `Testing` framework (`@Suite`, `@Test`, `#expect`), not XCTest.
 - Logger calls go through `Log.<category>` from `Logger.swift`. Always use the
   `os.Logger` API with `privacy:` annotations on interpolated values.
+- SwiftUI row views that need a `guard let` against an array-index lookup
+  (e.g. `model.config.devices[safe: index]`) should use `@ViewBuilder var body`
+  - `if let`, NOT `AnyView(EmptyView()) / AnyView(HStack{…})`. The `AnyView`
+    form erases types and disables SwiftUI's view-update fast path; we fixed
+    three copies in `SettingsAppRulesTab` / `SettingsDevicesTab` /
+    `SettingsLayoutsTab` during the feat/auto-yield review pass.
+
+### Tests and persistent state
+
+- `ActivityStore()` (no-args init) opens the **real** `~/.config/RuEnSync/activity.db`.
+  Tests that touch `model.activity` and assert on `entries.count` or
+  `count + 1` will pass in isolation and then start failing once the
+  on-disk log accumulates ≥ capacity rows from earlier runs (capacity
+  caps the in-memory mirror at 100). Prefer asserting on
+  `entries.first?.kind` / `entries.first?.id` — they're stable under
+  any accumulated history. For end-to-end isolation, use the test-only
+  `ActivityStore(database:)` init with `try ActivityDatabase(path: ":memory:")`.
+- `AppModel` test models can be built with `allowAutoDiscoverySeed: false`
+  to skip the IOKit-touching first-run discovery path.
 
 ### Format / lint quirks
 
@@ -197,6 +290,25 @@ Or open the generated workspace in Xcode and ⌘R.
   parser dispatch in a `// swiftlint:disable cyclomatic_complexity` … `// swiftlint:enable
   cyclomatic_complexity` **block**. A `:next`-style comment between `///` doc and
   declaration breaks `orphaned_doc_comment` — don't do that.
+- SwiftLint `file_length` capped at 400. When `AppModel.swift` grows past it,
+  move logic into `AppModel+Coordination.swift` (extension); stored properties
+  stay in core, methods + computed properties move out. Make `private` →
+  internal for members the extension touches.
+- SwiftLint `nesting` capped at 1. A sum type inside a struct inside an
+  outer type (`Config.AppLayoutRule.Match`) violates this; suppress with
+  `// swiftlint:disable:next nesting` on the inner declaration when the
+  type is meaningless outside its enclosing scope (promoting it to
+  module scope just leaks namespace).
+- `mise run format` (hk fix) will split long `Text("…")` / `String(…)`
+  literals across multiple lines, which silently invalidates any
+  `// swiftlint:disable:previous line_length` annotation that used to
+  apply (the "previous" line is now the closing paren, not the long
+  string). Prefer `"first half " + "second half"` concatenation over
+  the disable-comment trick for strings the formatter is likely to wrap.
+- swiftformat strips `self.` from interpolations even inside Logger's
+  `@autoclosure` context, breaking compile with _"reference to property X in
+  closure requires explicit use of 'self'"_. Fix: bind to a local let first —
+  `if let yielded = yieldedTo { Log.app.info("…\(yielded, privacy: .public)") }`.
 - SourceKit frequently shows phantom _"No such module 'Sparkle' / 'SQLite' /
   'ProjectDescription'"_ errors right after edits or package resolves. They lag
   behind project regeneration. The real source of truth is `mise run build` /
@@ -210,3 +322,14 @@ Or open the generated workspace in Xcode and ⌘R.
   is hardcoded to `0xFF60 / 0x61`. Changing these means we won't find any keyboards.
 - `LSUIElement = true` in Info.plist. Removing it makes the Dock icon appear, which
   defeats the whole "menubar agent" point.
+
+## Fetching PR review comments
+
+`gh pr view N --comments` shows only top-level comments — `gemini-code-assist`
+(and any human inline reviewer) writes per-line review comments that live on a
+different endpoint. Use:
+
+```bash
+gh api repos/alexey1312/ruen-sync-mac/pulls/<N>/comments \
+  --jq '.[] | {path, line, body, user: .user.login}'
+```
