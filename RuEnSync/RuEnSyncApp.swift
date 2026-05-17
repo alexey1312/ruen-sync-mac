@@ -37,6 +37,12 @@ struct RuEnSyncApp: App {
         }
         .defaultSize(width: 640, height: 480)
         .windowResizability(.contentMinSize)
+
+        // Standard macOS Preferences/Settings window — wired to Cmd+,
+        // and to the "Settings…" menubar item.
+        Settings {
+            SettingsView(model: model)
+        }
     }
 }
 
@@ -156,6 +162,7 @@ private struct MenuContent: View {
     let updater: Updater
     @State private var showActivity = false
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Text("RuEnSync")
@@ -226,6 +233,15 @@ private struct MenuContent: View {
                 set: { model.appLayoutSwitchingEnabled = $0 }
             ))
         }
+
+        Button("Settings…") {
+            // SwiftUI's Settings scene doesn't always bring its window to
+            // front for menubar apps — explicitly activating ensures the
+            // window appears in front of the active app's windows.
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
+        }
+        .keyboardShortcut(",")
 
         Button("Open config…") {
             NSWorkspace.shared.activateFileViewerSelecting([ConfigStore.configURL])

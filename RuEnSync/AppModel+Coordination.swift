@@ -112,4 +112,23 @@ extension AppModel {
             refreshInspectionFlag()
         }
     }
+
+    // MARK: Config edits from Settings UI
+
+    /// Mutates the in-memory config, persists it to disk, and re-applies
+    /// the changes immediately. The persisted write sets a self-write
+    /// marker so the file-watcher doesn't double-apply — see
+    /// `ConfigStore.selfWritingMarker`.
+    func editConfig(_ transform: (inout Config) -> Void) {
+        var updated = config
+        transform(&updated)
+        guard updated != config else { return }
+        do {
+            try ConfigStore.save(updated)
+        } catch {
+            Log.config.error("save failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        applyNewConfig(updated)
+    }
 }

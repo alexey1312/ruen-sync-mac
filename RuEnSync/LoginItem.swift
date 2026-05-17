@@ -38,4 +38,16 @@ enum LoginItem {
             Log.app.error("failed to unregister: \(error.localizedDescription, privacy: .public)")
         }
     }
+
+    /// True if the app is currently registered as a login item (status
+    /// `.enabled` or `.requiresApproval`). `.requiresApproval` counts as
+    /// "the user wanted it on, but System Settings is gating it" — keeping
+    /// the toggle visually-on matches user intent.
+    static var isEnabled: Bool {
+        switch SMAppService.mainApp.status {
+        case .enabled, .requiresApproval: true
+        case .notRegistered, .notFound: false
+        @unknown default: false
+        }
+    }
 }

@@ -159,6 +159,30 @@ enum ConfigStore {
         try data.write(to: url, options: .atomic)
     }
 
+    /// True for a brief window while our own write is in-flight. The
+    /// directory file-watcher reads this flag and skips one fire so the
+    /// app doesn't reload its own write (which would still be correct,
+    /// just a wasted activity-log entry + log line).
+    @MainActor private(set) static var selfWritingMarker: Date?
+
+    /// Persists `config` atomically (temp-file + rename, same as
+    /// `writeDefault`). Sets a brief self-write marker so the file watcher
+    /// can ignore the resulting fsevent — see `watch(onChange:)`.
+    @MainActor
+    static func save(_ config: Config) throws {
+        let url = configURL
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(config)
+        selfWritingMarker = Date()
+        try data.write(to: url, options: .atomic)
+        Log.config.info("config saved to \(url.path, privacy: .public)")
+    }
+
     /// Watches `~/.config/RuEnSync/` for changes and reloads the config on
     /// each modification. Returns the source so the caller can keep it alive
     /// and cancel on teardown. We watch the **parent directory**, not the
@@ -188,6 +212,15 @@ enum ConfigStore {
             // path, so even after a rename we'll see the new file.
             let config = loadOrSeedDefaults()
             MainActor.assumeIsolated {
+                // If we just wrote the file ourselves (e.g. from the
+                // Settings window), suppress the resulting reload. The
+                // 500 ms window covers the OS-side fsevent latency without
+                // accidentally swallowing a legitimate user edit that
+                // lands on the same heartbeat.
+                if let marker = selfWritingMarker, Date().timeIntervalSince(marker) < 0.5 {
+                    selfWritingMarker = nil
+                    return
+                }
                 onChange(config)
             }
         }
