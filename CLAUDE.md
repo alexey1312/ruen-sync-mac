@@ -109,6 +109,23 @@ Scripts/
    `"$(CURRENT_PROJECT_VERSION)"` in the `infoPlist:` dict so Xcode resolves
    them at compile time. See `Project.swift` Info.plist block.
 
+10. **`NSWindow.Level.floating` requires an NSViewRepresentable bridge.**
+    SwiftUI's `Window` scene doesn't expose `level` declaratively until macOS
+    15. Use a tiny `WindowConfigurator: NSViewRepresentable` in `.background(…)`
+    that grabs `view.window` from inside an async hop. See `HIDInspectorView`.
+
+11. **`String(localized:)` for non-SwiftUI strings.** SwiftUI's `Text`/`Button`/
+    `Toggle` auto-extract into `RuEnSync/Resources/Localizable.xcstrings`. For
+    code-formed strings (`OfflineReason.menuLabel`, `ActivityKind.headline`,
+    `DeviceStatus.summary`) wrap in `String(localized: "…")` so Xcode picks
+    them up. Russian translations use positional placeholders (`%1$@`, `%2$@`)
+    where word order differs from English.
+
+12. **First-run device discovery is gated by UserDefaults flag**
+    `ruensync.autoDiscoveryRan`. Without it, deleting the last device in
+    Settings would resurrect it on the next launch. Re-running discovery
+    manually is Settings → Devices → Scan.
+
 ## Firmware contract
 
 The keyboard side is in [split_keyboard_layouts/firmware/](https://github.com/alexey1312/split_keyboard_layouts/tree/main/firmware).
@@ -165,6 +182,28 @@ Debug logs land in the unified log:
 log stream --predicate 'subsystem == "com.alexey1312.ruensync"' --info
 ```
 
+`mise run build` pipes through xcsift, which can show `status: success` while
+tuist's incremental cache silently skipped a file with a real compile error.
+If a behaviour change isn't showing up in the running app, `touch
+RuEnSync/<EditedFile>.swift && tuist build RuEnSync 2>&1 | tail -30` forces a
+real recompile and surfaces the actual diagnostics.
+
+### Live testing & debugging
+
+- Shell has an `alias log=…` (rtk wrapper). Use `/usr/bin/log` explicitly for
+  streams: `/usr/bin/log stream --predicate 'subsystem == "com.alexey1312.ruensync"' --level info --style compact`.
+- macOS doesn't persist `.info`-level entries by default — `log show --info`
+  after-the-fact misses them. Either start `log stream --level info` BEFORE
+  the run, or rely on `.error` for post-mortems.
+- `NSWorkspace.didTerminateApplicationNotification` arrives ~30 s after a
+  SIGTERM (`kill <pid>`) for GUI apps. For deterministic testing of
+  ConflictWatcher resume use `osascript -e 'tell application "Vial" to quit'`.
+- LaunchServices caches `.app` bundles by path. After `tuist build`, verify the
+  binary actually changed: `stat -f '%m %N' …/Debug/RuEnSync.app/Contents/MacOS/RuEnSync`
+  vs `date +%s`. If old, `touch` a swift source and rebuild.
+- `NSWorkspace.shared.notificationCenter` ≠ `NotificationCenter.default` —
+  subscribing to the latter for workspace events is a silent no-op.
+
 ### Launching the debug build
 
 `tuist run RuEnSync` fails with _"no suitable device for macOS"_ on Tuist 4.56
@@ -197,6 +236,14 @@ Or open the generated workspace in Xcode and ⌘R.
   parser dispatch in a `// swiftlint:disable cyclomatic_complexity` … `// swiftlint:enable
   cyclomatic_complexity` **block**. A `:next`-style comment between `///` doc and
   declaration breaks `orphaned_doc_comment` — don't do that.
+- SwiftLint `file_length` capped at 400. When `AppModel.swift` grows past it,
+  move logic into `AppModel+Coordination.swift` (extension); stored properties
+  stay in core, methods + computed properties move out. Make `private` →
+  internal for members the extension touches.
+- swiftformat strips `self.` from interpolations even inside Logger's
+  `@autoclosure` context, breaking compile with _"reference to property X in
+  closure requires explicit use of 'self'"_. Fix: bind to a local let first —
+  `if let yielded = yieldedTo { Log.app.info("…\(yielded, privacy: .public)") }`.
 - SourceKit frequently shows phantom _"No such module 'Sparkle' / 'SQLite' /
   'ProjectDescription'"_ errors right after edits or package resolves. They lag
   behind project regeneration. The real source of truth is `mise run build` /
