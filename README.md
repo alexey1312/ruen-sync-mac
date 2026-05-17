@@ -10,21 +10,32 @@
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 Native macOS menubar app that keeps a QMK keyboard's `cur_lang` in sync with
-the active macOS input source. Event-driven (no polling), Login-Item managed,
-in-app auto-updates via Sparkle. Drop-in replacement for
-[qmk-hid-host](https://github.com/zzeneg/qmk-hid-host).
+the active macOS input source. Works with **any** QMK keyboard exposing the
+Raw HID interface (`usagePage = 0xFF60` / `usage = 0x61`) — wire-compatible
+with [qmk-hid-host](https://github.com/zzeneg/qmk-hid-host), no firmware
+changes needed.
 
-**Highlights**
+## Why RuEnSync
 
-- Auto-discovers QMK Raw HID keyboards on first launch — zero config needed
-  for the common case.
-- Native Settings window (⌘,) for devices, layouts, per-app rules, autostart,
+[qmk-hid-host](https://github.com/zzeneg/qmk-hid-host) is the reference Rust
+daemon for the same job — headless, JSON-config-driven, no UI. RuEnSync stays
+wire-compatible with its `0xAC` layout packet, but ships a native macOS
+experience on top:
+
+- **GUI Settings window** (⌘,) for devices, layouts, per-app rules, autostart,
   and debug toggles.
-- Per-app layout switching: `Slack → RU`, `Xcode → EN`, etc., configured by
-  bundle ID (exact or prefix).
-- Auto-yields the keyboard when Vial or QMK Toolbox launches, so flashing
-  and reconfiguration "just work" without quitting RuEnSync first.
-- Russian-localized UI when macOS is set to Russian; otherwise English.
+- **Per-app layout rules** — `Slack → RU`, `Xcode → EN`, configured by bundle
+  ID (exact or prefix). No equivalent in `qmk-hid-host`.
+- **Auto-yields the keyboard** when Vial or QMK Toolbox launches, so flashing
+  and reconfiguration "just work" — and reacquires the device automatically on
+  quit. No manual daemon stop/start.
+- **Zero-config first launch** — auto-discovers any QMK Raw HID keyboard, no
+  `productId` lookup or JSON editing required.
+- **Event-driven** (no 100 ms polling) via the Carbon TIS notification API —
+  lighter on CPU and battery than poll-based daemons.
+- **In-app auto-updates** via Sparkle (EdDSA-verified) and Login-Item managed
+  through `SMAppService` (no LaunchAgent plist).
+- **Russian-localized UI** when macOS is set to Russian; otherwise English.
 
 ## Compatible firmware
 

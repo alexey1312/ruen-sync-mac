@@ -9,6 +9,11 @@ active macOS input source. Drop-in replacement for [qmk-hid-host](https://github
 written specifically for the
 [split_keyboard_layouts](https://github.com/alexey1312/split_keyboard_layouts) Corne firmware.
 
+The firmware repo is typically cloned at `/Users/aleksei/Developer/split_keyboard_layouts/`.
+When debugging wire-protocol / `cur_lang` desync issues, read
+`firmware/crkbd_ruen/ruen.c` and `firmware/crkbd.c.patch` there directly —
+the host (this repo) and firmware are co-evolved.
+
 ## Stack
 
 - **Tuist** (`Project.swift`, `Tuist.swift`) generates the Xcode project. No checked-in
@@ -185,6 +190,31 @@ plain value-typed initialisers. If you ever wrap them in a
     on-disk bytes against that stamp and only fires `onChange` for
     foreign writes.
 
+15. **`LayoutWatcher` has two public read APIs — don't merge them.**
+    `refreshCurrentIndex()` reads TIS and updates `lastIndex` silently
+    (no callback). Use it when a caller needs fresh authoritative state
+    without re-broadcasting to every HID link — e.g.
+    `AppModel.handleLinkStateChange` on `.connected` so manual Reconnect
+    always reseeds the firmware with current macOS state, not a stale
+    cache. `readAndDispatch()` is fire-on-change: it skips
+    `onLayoutChanged` when the resolved idx matches `lastIndex` (de-dups
+    Punto-Switcher-style burst notifications that previously hammered
+    the single-buffered QMK Raw HID endpoint with duplicate `0xAC`
+    packets).
+
+16. **Firmware `LG_TOGGLE` can desync `cur_lang` from macOS.**
+    `set_lang()` in `firmware/crkbd_ruen/ruen.c` emits Cmd+Space (or
+    Ctrl+Space) and **then** optimistically writes `cur_lang = new`
+    locally — without waiting for host confirmation. If the keystroke is
+    swallowed (Spotlight grabbing Cmd+Space, Punto Switcher interception,
+    a custom System Settings input-source shortcut, modifier-release
+    timing race), macOS stays in the old layout but firmware advances →
+    user types and gets wrong characters. Reconnect only papers over the
+    symptom IF our host-side `lastIndex` is still correct. Proper fix is
+    firmware-side: drop the optimistic write, or add a pending+timeout
+    state machine that defers the local update until `lang_sync_to`
+    confirms via `0xAC`.
+
 ## Firmware contract
 
 The keyboard side is in [split_keyboard_layouts/firmware/](https://github.com/alexey1312/split_keyboard_layouts/tree/main/firmware).
@@ -233,6 +263,16 @@ mise run run              # tuist run (debug, interactive)
 mise run clean            # nuke Derived/build/generated proj
 mise run release          # END-TO-END: clean → build → sign → notarize → DMG
                           # requires DEV_ID_APP and NOTARY_PROFILE env vars
+```
+
+Cutting a production release: **the git tag is the source of truth for the
+shipped version, NOT `Project.swift`.** `release.yml` extracts `vX.Y.Z` from
+the tag and rewrites `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` at build
+time. The `"1.0.0"` value baked in `Project.swift` is a dev placeholder —
+never bump it manually before tagging. See `docs/RELEASING.md`.
+
+```bash
+git tag v1.4.2 && git push origin v1.4.2   # triggers full release pipeline
 ```
 
 Debug logs land in the unified log:
