@@ -39,11 +39,11 @@ run = "tuist edit"
 
 [tasks.build]
 description = "Build (debug)"
-run = "tuist build RuEnSync 2>&1 | xcsift"
+run = "tuist build RuEnSync 2>&1 | xcsift --xcbeautify -f toon -E"
 
 [tasks."build:release"]
 description = "Build (release)"
-run = "tuist build RuEnSync --configuration Release 2>&1 | xcsift"
+run = "tuist build RuEnSync --configuration Release 2>&1 | xcsift --xcbeautify -f toon -E"
 
 [tasks.run]
 description = "Run app (debug)"
@@ -51,11 +51,11 @@ run = "tuist run RuEnSync"
 
 [tasks.test]
 description = "Run all tests"
-run = "tuist test RuEnSync 2>&1 | xcsift"
+run = "tuist test RuEnSync 2>&1 | xcsift --xcbeautify -f toon -E"
 
 [tasks.lint]
 description = "Run SwiftLint"
-run = "swiftlint lint --strict RuEnSync RuEnSyncTests 2>&1 | xcsift"
+run = "swiftlint lint --strict RuEnSync RuEnSyncTests 2>&1 | xcsift -f toon -E"
 
 [tasks."format:swift"]
 description = "Format Swift code"
