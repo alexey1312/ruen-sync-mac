@@ -19,8 +19,9 @@ import Foundation
 /// the same recovery sequence the user used to invoke by hand.
 ///
 /// Threading: `NSWorkspace.shared.notificationCenter` posts on an arbitrary
-/// thread; we hop to main via `queue: .main` and `MainActor.assumeIsolated`,
-/// mirroring `ConflictWatcher` and `LayoutWatcher`.
+/// thread; we hop to main via `queue: .main` and `MainActor.assumeIsolated`.
+/// Same `assumeIsolated` pattern documented in CLAUDE.md §3 (originally
+/// applied to DistributedNotificationCenter), here adapted to NSWorkspace.
 @MainActor
 final class SleepWatcher {
     /// Fired on every `didWakeNotification`. Owner decides what to do.
@@ -47,9 +48,9 @@ final class SleepWatcher {
         Log.app.info("SleepWatcher started")
     }
 
-    /// Mirrors `HIDLink.stop()` / `LayoutWatcher.stop()`: explicit cleanup
-    /// because Swift 6 `deinit` is always `nonisolated` and cannot touch the
-    /// non-Sendable `NSObjectProtocol` token.
+    /// Explicit cleanup. Owner (AppModel) is app-lifetime today so `stop()`
+    /// is rarely called outside tests; we still provide it because Swift 6
+    /// `deinit` cannot touch the non-Sendable token (CLAUDE.md §2).
     func stop() {
         if let didWakeToken {
             NSWorkspace.shared.notificationCenter.removeObserver(didWakeToken)

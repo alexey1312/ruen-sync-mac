@@ -45,7 +45,12 @@ final class ConflictWatcher {
     /// track the full set, not just "any active", so that closing one of two
     /// conflicting apps does NOT trigger resume while the other still holds
     /// the device.
-    private var activeBundleIds: Set<String> = []
+    ///
+    /// Visibility is `internal` (not `private`) only as a test seam:
+    /// `AppModelWakeTests` seeds this directly because the production seed
+    /// path (NSWorkspace.runningApplications scanning Vial / QMK Toolbox) is
+    /// unreachable from the unit-test harness.
+    var activeBundleIds: Set<String> = []
 
     func start() {
         if hasStarted { return }
@@ -120,6 +125,36 @@ final class ConflictWatcher {
         launchToken = nil
         terminateToken = nil
         hasStarted = false
+    }
+
+    /// Reconciles `activeBundleIds` against the live `NSWorkspace.runningApplications`
+    /// snapshot and fires the appropriate transition callback if the truth
+    /// changed. Used by `AppModel.handleDidWake`: macOS coalesces
+    /// `didTerminateApplicationNotification` across the sleep boundary the
+    /// same way it coalesces TIS — if Vial/QMK Toolbox was quit during sleep
+    /// we'd otherwise sit yielded forever. Calling this after wake forces a
+    /// re-check; the existing `onConflictCleared` path then resumes links.
+    func refresh() {
+        var alive: Set<String> = []
+        var firstAlive: (id: String, name: String)?
+        for app in NSWorkspace.shared.runningApplications {
+            guard let bundleId = app.bundleIdentifier,
+                  Self.conflictingBundleIds.contains(bundleId) else { continue }
+            alive.insert(bundleId)
+            if firstAlive == nil {
+                let name = app.localizedName ?? Self.fallbackDisplayName(for: bundleId)
+                firstAlive = (bundleId, name)
+            }
+        }
+        let wasYielded = !activeBundleIds.isEmpty
+        activeBundleIds = alive
+        if wasYielded, alive.isEmpty {
+            Log.app.info("ConflictWatcher.refresh: conflict cleared during sleep — resuming")
+            onConflictCleared?()
+        } else if !wasYielded, let first = firstAlive {
+            Log.app.info("ConflictWatcher.refresh: conflict appeared during sleep — yielding")
+            onConflictAppeared?(first.name)
+        }
     }
 
     private func handleLaunched(bundleId: String?, localizedName: String?) {

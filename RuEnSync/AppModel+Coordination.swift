@@ -62,15 +62,40 @@ extension AppModel {
     /// firmware gets a fresh seed for free. Brief typing-gap on wake is
     /// preferable to silent desync on the first keystroke.
     ///
-    /// Skipped while yielded — Vial / QMK Toolbox still own the endpoint and
-    /// `handleConflictCleared` will rebuild links on their exit.
+    /// Yielded handling: `NSWorkspace.didTerminateApplicationNotification` is
+    /// coalesced across the sleep boundary the same way TIS notifications are.
+    /// If Vial/QMK Toolbox was quit during sleep we may have missed the
+    /// termination event and would otherwise sit yielded forever. We ask the
+    /// ConflictWatcher to rescan running apps; if the conflicting app is gone
+    /// it will fire `onConflictCleared` synchronously, dropping `yieldedTo`
+    /// and rebuilding links through `handleConflictCleared`.
+    ///
+    /// Reconnect-loop safety: any inflight `scheduleReconnectTask` is
+    /// cancelled before we kick a fresh `reconnectAll()`. Without that the
+    /// retry task would race the wake-triggered rebuild for the exclusive HID
+    /// endpoint — the loser sees `kIOReturnExclusiveAccess` and we surface
+    /// "Device busy (qmk-hid-host running?)" to the user even though WE are
+    /// the conflicting process.
     func handleDidWake() {
         activity.record(.systemDidWake)
-        if let yielded = yieldedTo {
-            Log.app.info("wake handler: skipping — yielded to \(yielded, privacy: .public)")
-            return
+        if yieldedTo != nil {
+            // Re-scan running apps — may fire `onConflictCleared` synchronously
+            // which routes through `handleConflictCleared` and rebuilds links
+            // from there. In that case there's nothing left for us to do here:
+            // a second `reconnectAll()` would just tear down the freshly-built
+            // links and rebuild them again with the same outcome.
+            conflictWatcher.refresh()
+            if yieldedTo == nil {
+                Log.app.info("wake handler: conflict cleared during sleep — resume already ran")
+                return
+            }
+            if let yielded = yieldedTo {
+                Log.app.info("wake handler: skipping — still yielded to \(yielded, privacy: .public)")
+                return
+            }
         }
-        Log.app.info("wake handler: triggering reconnectAll")
+        Log.app.info("wake handler: cancel inflight retries + reconnectAll")
+        cancelReconnectTask()
         reconnectAll()
     }
 

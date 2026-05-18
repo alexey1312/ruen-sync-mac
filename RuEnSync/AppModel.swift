@@ -123,12 +123,7 @@ final class AppModel {
         }
         appContextWatcher.start()
 
-        // Resume from sleep: TIS distributed notifications get coalesced
-        // across the sleep boundary and USB HID may have suspended without
-        // a clean removed+added pair, so `lastIndex` and firmware `cur_lang`
-        // silently diverge. The recovery sequence is the same one the user
-        // used to invoke by hand — reconnectAll() — surfaced here through
-        // `handleDidWake` so they don't have to.
+        // Wake-from-sleep recovery; rationale + flow live on `handleDidWake`.
         sleepWatcher.onDidWake = { [weak self] in
             self?.handleDidWake()
         }
