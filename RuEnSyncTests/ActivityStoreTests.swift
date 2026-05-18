@@ -114,6 +114,7 @@ struct ActivityKindTests {
             .appLayoutOverrideFailed(bundleId: "com.apple.dt.Xcode", layoutName: "ABC", reason: "x"),
             .configReloaded,
             .configInvalid,
+            .systemDidWake,
         ]
         for kind in kinds {
             #expect(!kind.symbol.isEmpty)
@@ -146,6 +147,7 @@ struct ActivityKindTests {
             ),
             .configReloaded,
             .configInvalid,
+            .systemDidWake,
         ]
         for kind in kinds {
             let s = kind.storable

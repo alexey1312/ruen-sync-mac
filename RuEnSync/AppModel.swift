@@ -59,6 +59,7 @@ final class AppModel {
     let layoutWatcher: LayoutWatcher
     let conflictWatcher = ConflictWatcher()
     let appContextWatcher = AppContextWatcher()
+    let sleepWatcher = SleepWatcher()
     /// Held to keep the file-watcher alive — releasing it would cancel
     /// the DispatchSource and stop reloads.
     var configWatch: DispatchSourceFileSystemObject?
@@ -121,6 +122,17 @@ final class AppModel {
             self?.handleAppActivated(bundleId: bundleId)
         }
         appContextWatcher.start()
+
+        // Resume from sleep: TIS distributed notifications get coalesced
+        // across the sleep boundary and USB HID may have suspended without
+        // a clean removed+added pair, so `lastIndex` and firmware `cur_lang`
+        // silently diverge. The recovery sequence is the same one the user
+        // used to invoke by hand — reconnectAll() — surfaced here through
+        // `handleDidWake` so they don't have to.
+        sleepWatcher.onDidWake = { [weak self] in
+            self?.handleDidWake()
+        }
+        sleepWatcher.start()
 
         configWatch = ConfigStore.watch { [weak self] result in
             self?.handleConfigEvent(result)

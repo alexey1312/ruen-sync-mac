@@ -46,6 +46,34 @@ extension AppModel {
         buildAndStartLinks()
     }
 
+    // MARK: System sleep/wake
+
+    /// Re-establishes HID links after macOS wakes from sleep. Without this the
+    /// firmware's `cur_lang` and our cached `layoutIndex` silently diverge —
+    /// TIS distributed notifications across the sleep boundary are coalesced
+    /// and USB HID can suspend/resume without firing a clean removed+added
+    /// pair. Before this hook the user had to manually click "Reconnect" or
+    /// restart the app after every wake.
+    ///
+    /// Why full reconnectAll() instead of just refresh+resend: we don't know
+    /// whether the USB endpoint survived sleep cleanly. The connect path
+    /// already calls `layoutWatcher.refreshCurrentIndex()` and re-sends both
+    /// `_OS_TYPE` and `_LAYOUT` on every `.connected` transition, so the
+    /// firmware gets a fresh seed for free. Brief typing-gap on wake is
+    /// preferable to silent desync on the first keystroke.
+    ///
+    /// Skipped while yielded — Vial / QMK Toolbox still own the endpoint and
+    /// `handleConflictCleared` will rebuild links on their exit.
+    func handleDidWake() {
+        activity.record(.systemDidWake)
+        if let yielded = yieldedTo {
+            Log.app.info("wake handler: skipping — yielded to \(yielded, privacy: .public)")
+            return
+        }
+        Log.app.info("wake handler: triggering reconnectAll")
+        reconnectAll()
+    }
+
     // MARK: Per-app layout switching
 
     /// Looks up a rule for the activated app and, if found, requests a

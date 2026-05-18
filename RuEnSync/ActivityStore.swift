@@ -20,6 +20,7 @@ enum ActivityKind: Equatable {
     case appLayoutOverrideFailed(bundleId: String, layoutName: String, reason: String)
     case configReloaded
     case configInvalid
+    case systemDidWake
 
     /// SF Symbol name for the row icon. Picked so the icon alone gives the
     /// user a rough idea of severity (`xmark.*` = bad, `arrow.triangle.*` =
@@ -39,6 +40,7 @@ enum ActivityKind: Equatable {
         case .appLayoutOverrideFailed: "exclamationmark.app.fill"
         case .configReloaded: "doc.badge.gearshape"
         case .configInvalid: "doc.badge.ellipsis"
+        case .systemDidWake: "sun.max.fill"
         }
     }
 
@@ -75,6 +77,8 @@ enum ActivityKind: Equatable {
             String(localized: "Config reloaded")
         case .configInvalid:
             String(localized: "Config invalid — keeping previous")
+        case .systemDidWake:
+            String(localized: "System woke — reconnecting")
         }
     }
 }
@@ -125,6 +129,8 @@ extension ActivityKind {
             .init(discriminator: "configReloaded", deviceName: nil, reason: nil, label: nil)
         case .configInvalid:
             .init(discriminator: "configInvalid", deviceName: nil, reason: nil, label: nil)
+        case .systemDidWake:
+            .init(discriminator: "systemDidWake", deviceName: nil, reason: nil, label: nil)
         }
     }
 
@@ -172,6 +178,8 @@ extension ActivityKind {
             self = .configReloaded
         case "configInvalid":
             self = .configInvalid
+        case "systemDidWake":
+            self = .systemDidWake
         default:
             return nil
         }
