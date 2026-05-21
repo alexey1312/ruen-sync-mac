@@ -149,8 +149,7 @@ enum Diagnostics {
     // MARK: Pieces
 
     private static func makeWorkDirectory() -> URL {
-        let stamp = ISO8601DateFormatter().string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
+        let stamp = UUID().uuidString
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("ruensync-diag-\(stamp)")
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
