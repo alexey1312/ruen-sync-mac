@@ -246,13 +246,12 @@ enum ConfigStore {
     @discardableResult
     static func seedDefaultIfMissing() -> Bool {
         let url = configURL
-        if FileManager.default.fileExists(atPath: url.path) {
-            return false
-        }
         do {
             try writeDefault(to: url)
             Log.config.info("seeded default config at \(url.path, privacy: .public)")
             return true
+        } catch let error as CocoaError where error.code == .fileWriteFileExists {
+            return false
         } catch {
             let message = error.localizedDescription
             Log.config
@@ -273,7 +272,7 @@ enum ConfigStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(Config.default)
-        try data.write(to: url, options: .atomic)
+        try data.write(to: url, options: [.atomic, .withoutOverwriting])
         lastWrittenSHA = sha256(data)
     }
 
