@@ -151,8 +151,9 @@ enum Diagnostics {
     private static func makeWorkDirectory() -> URL {
         let stamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
+        let uuid = UUID().uuidString
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ruensync-diag-\(stamp)")
+            .appendingPathComponent("ruensync-diag-\(stamp)-\(uuid)")
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
@@ -160,9 +161,10 @@ enum Diagnostics {
     private static func downloadsZipURL() -> URL {
         let stamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
+        let uuid = UUID().uuidString
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
-        return downloads.appendingPathComponent("ruensync-diag-\(stamp).zip")
+        return downloads.appendingPathComponent("ruensync-diag-\(stamp)-\(uuid).zip")
     }
 
     /// Opens an ad-hoc connection to the activity DB and flushes the WAL
