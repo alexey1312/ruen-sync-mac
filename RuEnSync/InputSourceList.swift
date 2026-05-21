@@ -1,5 +1,6 @@
 import Carbon.HIToolbox.TextInputSources
 import Foundation
+import os
 
 // MARK: - InputSourceList
 
@@ -18,20 +19,32 @@ enum InputSourceList {
         }
     }
 
+    private static let displayNamesCache = OSAllocatedUnfairLock<[String: String]?>(initialState: nil)
+
     /// Friendly localized label for a layout suffix, e.g. `"Russian"` →
     /// `"Russian"` (or `"Русская"` if macOS is in Russian). Falls back to
     /// the suffix itself when the source isn't currently enabled.
     static func displayName(for suffix: String) -> String {
+        if let existing = displayNamesCache.withLock({ $0 }) {
+            return existing[suffix] ?? suffix
+        }
+
+        var built: [String: String] = [:]
         for source in sources() {
             guard let id = stringProperty(source, key: kTISPropertyInputSourceID) else { continue }
             let candidate = id.split(separator: ".").last.map(String.init) ?? id
-            guard candidate == suffix else { continue }
-            if let localized = stringProperty(source, key: kTISPropertyLocalizedName) {
-                return localized
+            if built[candidate] == nil {
+                built[candidate] = stringProperty(source, key: kTISPropertyLocalizedName) ?? candidate
             }
-            return candidate
         }
-        return suffix
+
+        return displayNamesCache.withLock { cache in
+            if let existing = cache {
+                return existing[suffix] ?? suffix
+            }
+            cache = built
+            return built[suffix] ?? suffix
+        }
     }
 
     // MARK: Internal
