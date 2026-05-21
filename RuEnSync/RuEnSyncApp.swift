@@ -278,7 +278,38 @@ private struct MenuContent: View {
         }
 
         Button("Open log…") {
-            openLogStream()
+            // Per-launch unique name: prevents an attacker who can write to
+            // $TMPDIR from pre-planting a symlink at a known path (which our
+            // chmod would then redirect), and avoids collisions if a debug build
+            // is running alongside.
+            let scriptURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("RuEnSync-log-\(UUID().uuidString).command")
+            let content = """
+            #!/bin/bash
+            clear
+            echo "RuEnSync — live log (Ctrl-C to stop)"
+            echo
+            exec log stream --predicate 'subsystem == "\(Log.subsystem)"' --info
+            """
+            do {
+                // .withoutOverwriting refuses to follow a pre-existing symlink at
+                // the path. 0o700 keeps the script readable only by us.
+                try Data(content.utf8).write(to: scriptURL, options: [.atomic, .withoutOverwriting])
+                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+                guard NSWorkspace.shared.open(scriptURL) else {
+                    Log.app
+                        .error(
+                            "openLogStream: no app registered for .command — install Terminal or set a default opener"
+                        )
+                    return
+                }
+            } catch {
+                let nsError = error as NSError
+                Log.app
+                    .error(
+                        "openLogStream failed: \(nsError.domain, privacy: .public) code=\(nsError.code) — \(nsError.localizedDescription, privacy: .public)"
+                    )
+            }
         }
 
         Divider()
@@ -304,46 +335,6 @@ private struct MenuContent: View {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")
-    }
-
-    /// Launches Terminal with a `log stream` predicate scoped to our subsystem.
-    /// Implementation note: we write a temporary `.command` file and let
-    /// `NSWorkspace.open` route it to Terminal via LaunchServices. Avoids the
-    /// AppleScript / NSAppleEventDescriptor path, which would trigger a TCC
-    /// prompt for "Automation → Terminal" on first use.
-    private func openLogStream() {
-        // Per-launch unique name: prevents an attacker who can write to
-        // $TMPDIR from pre-planting a symlink at a known path (which our
-        // chmod would then redirect), and avoids collisions if a debug build
-        // is running alongside.
-        let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("RuEnSync-log-\(UUID().uuidString).command")
-        let content = """
-        #!/bin/bash
-        clear
-        echo "RuEnSync — live log (Ctrl-C to stop)"
-        echo
-        exec log stream --predicate 'subsystem == "\(Log.subsystem)"' --info
-        """
-        do {
-            // .withoutOverwriting refuses to follow a pre-existing symlink at
-            // the path. 0o700 keeps the script readable only by us.
-            try Data(content.utf8).write(to: scriptURL, options: [.atomic, .withoutOverwriting])
-            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
-            guard NSWorkspace.shared.open(scriptURL) else {
-                Log.app
-                    .error(
-                        "openLogStream: no app registered for .command — install Terminal or set a default opener"
-                    )
-                return
-            }
-        } catch {
-            let nsError = error as NSError
-            Log.app
-                .error(
-                    "openLogStream failed: \(nsError.domain, privacy: .public) code=\(nsError.code) — \(nsError.localizedDescription, privacy: .public)"
-                )
-        }
     }
 }
 
