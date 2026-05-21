@@ -1,6 +1,5 @@
 import Carbon.HIToolbox.TextInputSources
 import Foundation
-import os
 
 // MARK: - InputSourceList
 
@@ -19,15 +18,24 @@ enum InputSourceList {
         }
     }
 
-    private static let displayNamesCache = OSAllocatedUnfairLock<[String: String]?>(initialState: nil)
+    // Wrap NSLock with @unchecked Sendable to suppress Swift 6 warnings since NSLock itself
+    // is thread-safe but the swift typechecker doesn't natively mark it Sendable on all SDKs.
+    private final class CacheLock: @unchecked Sendable {
+        let lock = NSLock()
+        var cache: [String: String]?
+    }
+    private static let displayNamesCache = CacheLock()
 
     /// Friendly localized label for a layout suffix, e.g. `"Russian"` →
     /// `"Russian"` (or `"Русская"` if macOS is in Russian). Falls back to
     /// the suffix itself when the source isn't currently enabled.
     static func displayName(for suffix: String) -> String {
-        if let existing = displayNamesCache.withLock({ $0 }) {
+        displayNamesCache.lock.lock()
+        if let existing = displayNamesCache.cache {
+            displayNamesCache.lock.unlock()
             return existing[suffix] ?? suffix
         }
+        displayNamesCache.lock.unlock()
 
         var built: [String: String] = [:]
         for source in sources() {
@@ -38,13 +46,13 @@ enum InputSourceList {
             }
         }
 
-        return displayNamesCache.withLock { cache in
-            if let existing = cache {
-                return existing[suffix] ?? suffix
-            }
-            cache = built
-            return built[suffix] ?? suffix
+        displayNamesCache.lock.lock()
+        if displayNamesCache.cache == nil {
+            displayNamesCache.cache = built
         }
+        let existing = displayNamesCache.cache!
+        displayNamesCache.lock.unlock()
+        return existing[suffix] ?? suffix
     }
 
     // MARK: Internal
