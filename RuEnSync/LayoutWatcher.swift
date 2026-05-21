@@ -150,7 +150,7 @@ final class LayoutWatcher {
         // Match by suffix to mirror LayoutResolver.resolveIndex: the user
         // writes `"Russian"` in config and we look up
         // `com.apple.keylayout.Russian`. Keeps the config format symmetric
-        // for read (LayoutResolver) and write (this method).
+        // between read (LayoutResolver) and write (this method).
         let filter: [CFString: Any] = [
             kTISPropertyInputSourceCategory: kTISCategoryKeyboardInputSource as Any,
         ]
