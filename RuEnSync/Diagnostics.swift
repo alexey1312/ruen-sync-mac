@@ -308,7 +308,13 @@ enum Diagnostics {
         }.value
         let outData = await outDataTask
         let errData = await errDataTask
-        process.waitUntilExit()
+        if process.isRunning {
+            await withCheckedContinuation { continuation in
+                process.terminationHandler = { _ in
+                    continuation.resume()
+                }
+            }
+        }
 
         let outStr = String(data: outData, encoding: .utf8) ?? ""
 
