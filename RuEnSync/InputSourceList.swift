@@ -18,12 +18,13 @@ enum InputSourceList {
         }
     }
 
-    // Wrap NSLock with @unchecked Sendable to suppress Swift 6 warnings since NSLock itself
-    // is thread-safe but the swift typechecker doesn't natively mark it Sendable on all SDKs.
+    /// Wrap NSLock with @unchecked Sendable to suppress Swift 6 warnings since NSLock itself
+    /// is thread-safe but the swift typechecker doesn't natively mark it Sendable on all SDKs.
     private final class CacheLock: @unchecked Sendable {
         let lock = NSLock()
         var cache: [String: String]?
     }
+
     private static let displayNamesCache = CacheLock()
 
     /// Friendly localized label for a layout suffix, e.g. `"Russian"` →
