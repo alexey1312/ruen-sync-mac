@@ -204,7 +204,10 @@ final class AppModel {
                     return // cancelled mid-sleep
                 }
                 guard !Task.isCancelled else { return }
-                await self?.bumpReconnectAttemptAndRetry()
+                await MainActor.run {
+                    self?.reconnectAttempt += 1
+                    self?.reconnectAll()
+                }
             }
         }
     }
@@ -213,14 +216,6 @@ final class AppModel {
     func cancelReconnectTask() {
         reconnectTask?.cancel()
         reconnectTask = nil
-    }
-
-    /// Main-actor-isolated helper called from inside `reconnectTask`. Increments
-    /// the attempt counter and triggers a full link rebuild. The counter is
-    /// only reset on a successful `.connected` transition.
-    private func bumpReconnectAttemptAndRetry() {
-        reconnectAttempt += 1
-        reconnectAll()
     }
 
     /// Computes the delay before the **next** reconnect attempt.
