@@ -250,7 +250,7 @@ enum ConfigStore {
             try writeDefault(to: url)
             Log.config.info("seeded default config at \(url.path, privacy: .public)")
             return true
-        } catch let error as CocoaError where error.code == .fileWriteFileExists {
+        } catch CocoaError.fileWriteFileExists {
             return false
         } catch {
             let message = error.localizedDescription
