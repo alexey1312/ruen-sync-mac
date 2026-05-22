@@ -81,10 +81,10 @@ struct Config: Codable, Equatable {
     var debug: Debug?
 
     static let `default` = Config(
-        // No baked-in device list. The very first launch runs auto-discovery
-        // (see `AppModel.start`); shipping a sample device that's only valid
-        // for one user's keyboard sent everyone else into a misleading
-        // "Corne — not connected" state.
+        // We do not provide a baked-in device list. The very first launch
+        // runs auto-discovery (see AppModel.start). Shipping a sample
+        // device that is only valid for one user's keyboard sent everyone
+        // else into a misleading state where the device appears disconnected.
         devices: [],
         layouts: ["ABC", "Russian"],
         appLayoutRules: nil,
