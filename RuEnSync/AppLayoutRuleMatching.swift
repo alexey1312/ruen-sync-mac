@@ -20,15 +20,18 @@ enum AppLayoutRuleMatching {
         }) {
             return exact
         }
-        return rules
-            .filter { rule in
-                guard case let .prefix(prefix) = rule.match else { return false }
-                return bundleId.hasPrefix(prefix)
+        var bestMatch: Config.AppLayoutRule?
+        var longestPrefixLength = -1
+
+        for rule in rules {
+            if case let .prefix(prefix) = rule.match, bundleId.hasPrefix(prefix) {
+                if prefix.count > longestPrefixLength {
+                    bestMatch = rule
+                    longestPrefixLength = prefix.count
+                }
             }
-            .max(by: { lhs, rhs in
-                let l = if case let .prefix(p) = lhs.match { p.count } else { 0 }
-                let r = if case let .prefix(p) = rhs.match { p.count } else { 0 }
-                return l < r
-            })
+        }
+
+        return bestMatch
     }
 }
