@@ -64,15 +64,15 @@ final class ConflictWatcher {
         // mute from the activity log's perspective.
         var seedName: String?
         var seededNames: [String] = []
-        for app in NSWorkspace.shared.runningApplications {
-            guard let bundleId = app.bundleIdentifier,
-                  Self.conflictingBundleIds.contains(bundleId) else { continue }
-            let name = app.localizedName ?? Self.fallbackDisplayName(for: bundleId)
-            if activeBundleIds.isEmpty {
-                seedName = name
+        for bundleId in Self.conflictingBundleIds {
+            for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
+                let name = app.localizedName ?? Self.fallbackDisplayName(for: bundleId)
+                if activeBundleIds.isEmpty {
+                    seedName = name
+                }
+                activeBundleIds.insert(bundleId)
+                seededNames.append(name)
             }
-            activeBundleIds.insert(bundleId)
-            seededNames.append(name)
         }
 
         if !seededNames.isEmpty {
@@ -137,13 +137,13 @@ final class ConflictWatcher {
     func refresh() {
         var alive: Set<String> = []
         var firstAlive: (id: String, name: String)?
-        for app in NSWorkspace.shared.runningApplications {
-            guard let bundleId = app.bundleIdentifier,
-                  Self.conflictingBundleIds.contains(bundleId) else { continue }
-            alive.insert(bundleId)
-            if firstAlive == nil {
-                let name = app.localizedName ?? Self.fallbackDisplayName(for: bundleId)
-                firstAlive = (bundleId, name)
+        for bundleId in Self.conflictingBundleIds {
+            for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
+                alive.insert(bundleId)
+                if firstAlive == nil {
+                    let name = app.localizedName ?? Self.fallbackDisplayName(for: bundleId)
+                    firstAlive = (bundleId, name)
+                }
             }
         }
         let wasYielded = !activeBundleIds.isEmpty
