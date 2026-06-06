@@ -20,18 +20,17 @@ enum AppLayoutRuleMatching {
         }) {
             return exact
         }
-        var bestMatch: Config.AppLayoutRule?
-        var longestPrefixLength = -1
-
-        for rule in rules {
-            if case let .prefix(prefix) = rule.match, bundleId.hasPrefix(prefix) {
-                if prefix.count > longestPrefixLength {
-                    bestMatch = rule
-                    longestPrefixLength = prefix.count
-                }
+        // `.lazy` keeps the single-pass, zero-intermediate-array property of an
+        // imperative loop while staying declarative — and computes `prefix.count`
+        // once per matching rule rather than recomputing it inside `max`'s
+        // comparator. `max(by:)` returns the *first* maximal element on ties, so
+        // the "earliest longest prefix wins" tie-break matches the doc comment.
+        return rules.lazy
+            .compactMap { rule -> (rule: Config.AppLayoutRule, count: Int)? in
+                guard case let .prefix(prefix) = rule.match, bundleId.hasPrefix(prefix) else { return nil }
+                return (rule, prefix.count)
             }
-        }
-
-        return bestMatch
+            .max(by: { $0.count < $1.count })?
+            .rule
     }
 }
