@@ -352,10 +352,7 @@ enum ConfigStore {
             MainActor.assumeIsolated {
                 // Our own save — silently drop.
                 if let last = lastWrittenSHA, sha == last { return }
-                if let decoded = try? JSONDecoder().decode(Config.self, from: data) {
-                    lastWrittenSHA = sha
-                    onChange(.loaded(decoded))
-                } else {
+                guard let decoded = try? JSONDecoder().decode(Config.self, from: data) else {
                     // Foreign decode failure: keep `lastWrittenSHA` untouched
                     // so we still detect when the user fixes the file.
                     let err = NSError(
@@ -364,7 +361,11 @@ enum ConfigStore {
                         userInfo: [NSLocalizedDescriptionKey: "config.json failed to decode"]
                     )
                     onChange(.corrupt(underlying: err))
+                    return
                 }
+
+                lastWrittenSHA = sha
+                onChange(.loaded(decoded))
             }
         }
         source.setCancelHandler {
