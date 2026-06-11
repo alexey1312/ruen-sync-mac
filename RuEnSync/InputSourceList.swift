@@ -22,19 +22,46 @@ enum InputSourceList {
     /// `"Russian"` (or `"Русская"` if macOS is in Russian). Falls back to
     /// the suffix itself when the source isn't currently enabled.
     static func displayName(for suffix: String) -> String {
-        for source in sources() {
-            guard let id = stringProperty(source, key: kTISPropertyInputSourceID) else { continue }
-            let candidate = id.split(separator: ".").last.map(String.init) ?? id
-            guard candidate == suffix else { continue }
-            if let localized = stringProperty(source, key: kTISPropertyLocalizedName) {
-                return localized
+        Cache.shared.displayName(for: suffix) {
+            var map: [String: String] = [:]
+            for source in sources() {
+                guard let id = stringProperty(source, key: kTISPropertyInputSourceID) else { continue }
+                let candidate = id.split(separator: ".").last.map(String.init) ?? id
+                let localized = stringProperty(source, key: kTISPropertyLocalizedName) ?? candidate
+                map[candidate] = localized
             }
-            return candidate
+            return map
         }
-        return suffix
     }
 
     // MARK: Internal
+
+    private final class Cache: @unchecked Sendable {
+        static let shared = Cache()
+        private var displayNames: [String: String] = [:]
+        private let lock = NSLock()
+
+        func displayName(for suffix: String, resolveAll: () -> [String: String]) -> String {
+            lock.lock()
+            if let cached = displayNames[suffix] {
+                lock.unlock()
+                return cached
+            }
+            lock.unlock()
+
+            let all = resolveAll()
+
+            lock.lock()
+            for (key, value) in all {
+                displayNames[key] = value
+            }
+            let result = displayNames[suffix] ?? suffix
+            displayNames[suffix] = result
+            lock.unlock()
+
+            return result
+        }
+    }
 
     private static func sources() -> [TISInputSource] {
         let filter: [CFString: Any] = [
