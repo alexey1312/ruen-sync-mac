@@ -1,5 +1,5 @@
-@testable import RuEnSync
 import Foundation
+@testable import RuEnSync
 import Testing
 
 @MainActor
