@@ -1,6 +1,6 @@
 @testable import RuEnSync
-import Testing
 import Foundation
+import Testing
 
 @MainActor
 struct ActivityDatabaseTests {
@@ -38,7 +38,11 @@ struct ActivityDatabaseTests {
         #expect(db.count() == 1)
 
         // Insert again with the same ID but a different label
-        let secondEntry = ActivityEntry(id: id, timestamp: Date().addingTimeInterval(10), kind: .layoutChanged(label: "RU"))
+        let secondEntry = ActivityEntry(
+            id: id,
+            timestamp: Date().addingTimeInterval(10),
+            kind: .layoutChanged(label: "RU")
+        )
         try db.insert(secondEntry)
 
         // Count should still be 1
