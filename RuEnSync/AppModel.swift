@@ -78,11 +78,11 @@ final class AppModel {
     /// Background task that retries `reconnectAll()` while any link is offline
     /// for a recoverable reason. `nil` when no retry is pending. Cancelled the
     /// moment any link transitions back to `.connected`.
-    private var reconnectTask: Task<Void, Never>?
+    var reconnectTask: Task<Void, Never>?
     /// Consecutive retry attempts since the last successful connect. Reset on
     /// `.connected`. Passed to `retryDelay(attempt:)` so the policy can apply
     /// backoff if it wants.
-    private var reconnectAttempt: Int = 0
+    var reconnectAttempt: Int = 0
 
     /// When false, `start()` skips the first-run auto-discovery seed. We use
     /// this when the config file is present but failed to decode: discovering
@@ -222,7 +222,7 @@ final class AppModel {
     /// running. Cancellation is the only termination path — the closure inside
     /// the task watches `reconnectAttempt` (mutated on the main actor) and
     /// `Task.isCancelled` to know when to stop.
-    private func scheduleReconnectTask() {
+    func scheduleReconnectTask() {
         if reconnectTask != nil { return }
         reconnectTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -334,74 +334,6 @@ final class AppModel {
         let enabled = config.effectiveHidInspectorEnabled
         for link in hidLinks {
             link.inspectionEnabled = enabled
-        }
-    }
-
-    private func handleLinkStateChange(idx: Int, state: HIDLink.State) {
-        guard idx < deviceStatuses.count, idx < hidLinks.count else {
-            let statusesCount = deviceStatuses.count
-            let linksCount = hidLinks.count
-            Log.app
-                .fault(
-                    "handleLinkStateChange out-of-bounds: idx=\(idx) statuses=\(statusesCount) links=\(linksCount)"
-                )
-            return
-        }
-        let previousState = deviceStatuses[idx].state
-        deviceStatuses[idx].state = state
-
-        let name = deviceStatuses[idx].name
-        switch (previousState, state) {
-        case (.offline, .connected):
-            activity.record(.deviceConnected(name: name))
-            cancelReconnectTask()
-            reconnectAttempt = 0
-        case let (.connected, .offline(reason)):
-            activity.record(.deviceDisconnected(name: name, reason: reason.menuLabel))
-            if reason.isRecoverable {
-                scheduleReconnectTask()
-            }
-        case let (.offline(prev), .offline(now)) where prev != now:
-            activity.record(.deviceOfflineReasonChanged(name: name, reason: now.menuLabel))
-            if now.isRecoverable, reconnectTask == nil {
-                scheduleReconnectTask()
-            }
-        default:
-            break
-        }
-
-        // On per-device connect, push two packets in order:
-        //   1. _OS_TYPE (MAC) — so firmware that knows 0xB0 flips into its
-        //      macOS-Russian variant before the first layout arrives.
-        //   2. _LAYOUT — last known layout, so the firmware doesn't sit on
-        //      a stale pre-disconnect state.
-        // Firmware that doesn't know 0xB0 ignores it; layout still works.
-        if case .connected = state {
-            let osOK = hidLinks[idx].sendOSFlag()
-            if !osOK {
-                // sendReport already logged the IOReturn at .error. .fault
-                // here so it surfaces in Console for users who didn't filter
-                // to .info/.debug; the headline feature of this app
-                // (auto-flip MAC mode after reflash) silently degrades into
-                // "you must press the on-keyboard toggle".
-                Log.hid
-                    .fault(
-                        "OS handshake failed for \(name, privacy: .public) — firmware will run in default (non-MAC) mode until reconnect"
-                    )
-                activity.record(.osHandshakeFailed(name: name))
-                return
-            }
-            activity.record(.osHandshakeSent(name: name))
-            // Force a fresh TIS read so the firmware seed reflects the actual
-            // current macOS layout, not a possibly-stale `lastIndex` left over
-            // from a missed notification (Punto Switcher burst, distributed-
-            // notification coalescing, etc.). Without this, manual Reconnect
-            // would silently re-send the stale value and the desync would
-            // outlive the recovery.
-            layoutWatcher.refreshCurrentIndex()
-            if let last = layoutWatcher.lastIndex {
-                hidLinks[idx].send(layoutIndex: last)
-            }
         }
     }
 }
