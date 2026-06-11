@@ -56,6 +56,17 @@ final class ConflictWatcher {
         if hasStarted { return }
         hasStarted = true
 
+        seedRunningApps()
+
+        let center = NSWorkspace.shared.notificationCenter
+        launchToken = setupLaunchObserver(in: center)
+        terminateToken = setupTerminateObserver(in: center)
+
+        Log.app
+            .info("ConflictWatcher started — watching \(Self.conflictingBundleIds.count, privacy: .public) bundle IDs")
+    }
+
+    private func seedRunningApps() {
         // Seed `activeBundleIds` from already-running apps so we yield
         // before HIDLink.start() ever tries to open the busy endpoint.
         // We log every seed app at info even though only the first one
@@ -83,9 +94,10 @@ final class ConflictWatcher {
         if let seedName {
             onConflictAppeared?(seedName)
         }
+    }
 
-        let center = NSWorkspace.shared.notificationCenter
-        launchToken = center.addObserver(
+    private func setupLaunchObserver(in center: NotificationCenter) -> NSObjectProtocol {
+        center.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification,
             object: nil,
             queue: .main
@@ -103,7 +115,10 @@ final class ConflictWatcher {
                 self?.handleLaunched(bundleId: bundleId, localizedName: localizedName)
             }
         }
-        terminateToken = center.addObserver(
+    }
+
+    private func setupTerminateObserver(in center: NotificationCenter) -> NSObjectProtocol {
+        center.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil,
             queue: .main
@@ -114,8 +129,6 @@ final class ConflictWatcher {
                 self?.handleTerminated(bundleId: bundleId)
             }
         }
-        Log.app
-            .info("ConflictWatcher started — watching \(Self.conflictingBundleIds.count, privacy: .public) bundle IDs")
     }
 
     func stop() {
