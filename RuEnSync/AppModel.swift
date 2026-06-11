@@ -28,7 +28,18 @@ final class AppModel {
     /// Writer is `internal` (not `private(set)`) so the coordination
     /// extension in another file can mutate; we keep the convention of
     /// writing through AppModel methods to preserve the @Observable contract.
-    var deviceStatuses: [DeviceStatus] = []
+    var deviceStatuses: [DeviceStatus] = [] {
+        didSet {
+            deviceStatusesDict = [:]
+            for status in deviceStatuses {
+                deviceStatusesDict[status.productId] = status.state
+            }
+        }
+    }
+
+    /// Dictionary representation of `deviceStatuses` for O(1) lookups.
+    /// Kept in sync with `deviceStatuses` via `didSet`.
+    private(set) var deviceStatusesDict: [UInt32: HIDLink.State] = [:]
 
     /// Name of the conflicting app we've yielded the HID device to, or `nil`
     /// when we're operating normally. While non-nil all HID links are stopped
