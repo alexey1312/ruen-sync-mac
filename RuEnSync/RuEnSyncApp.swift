@@ -316,8 +316,12 @@ private struct MenuContent: View {
         // $TMPDIR from pre-planting a symlink at a known path (which our
         // chmod would then redirect), and avoids collisions if a debug build
         // is running alongside.
-        let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("RuEnSync-log-\(UUID().uuidString).command")
+        // We create an isolated directory with 0o700 permissions to prevent
+        // race conditions where the file is momentarily readable before we
+        // can restrict its permissions.
+        let safeDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RuEnSync-log-\(UUID().uuidString)")
+        let scriptURL = safeDir.appendingPathComponent("RuEnSync-log.command")
         let content = """
         #!/bin/bash
         clear
@@ -326,8 +330,13 @@ private struct MenuContent: View {
         exec log stream --predicate 'subsystem == "\(Log.subsystem)"' --info
         """
         do {
+            try FileManager.default.createDirectory(
+                at: safeDir,
+                withIntermediateDirectories: false,
+                attributes: [.posixPermissions: 0o700]
+            )
             // .withoutOverwriting refuses to follow a pre-existing symlink at
-            // the path. 0o700 keeps the script readable only by us.
+            // the path. 0o700 keeps the script readable and executable only by us.
             try Data(content.utf8).write(to: scriptURL, options: [.atomic, .withoutOverwriting])
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
             guard NSWorkspace.shared.open(scriptURL) else {
