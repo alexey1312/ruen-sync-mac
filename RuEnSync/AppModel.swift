@@ -89,6 +89,19 @@ final class AppModel {
     /// Wires up the watchers and opens HID links for every usable device in
     /// the config. Call once after init, on the main actor.
     func start() {
+        setupLayoutWatcher()
+        setupConflictWatcher()
+        setupAppContextWatcher()
+        setupSleepWatcher()
+        setupConfigWatch()
+        runAutoDiscoveryIfNeeded()
+
+        if yieldedTo == nil {
+            buildAndStartLinks()
+        }
+    }
+
+    private func setupLayoutWatcher() {
         layoutWatcher.onLayoutChanged = { [weak self] idx in
             guard let self else { return }
             let previous = layoutIndex
@@ -101,7 +114,9 @@ final class AppModel {
             }
         }
         layoutWatcher.start()
+    }
 
+    private func setupConflictWatcher() {
         // Conflict watcher is started BEFORE buildAndStartLinks so that an
         // already-running Vial/QMK Toolbox seeds `yieldedTo` synchronously
         // (handleConflictAppeared runs from inside conflictWatcher.start()
@@ -114,7 +129,9 @@ final class AppModel {
             self?.handleConflictCleared()
         }
         conflictWatcher.start()
+    }
 
+    private func setupAppContextWatcher() {
         appContextWatcher.onAppActivated = { [weak self] bundleId in
             // Watcher already filters nil bundle IDs internally; the
             // remaining check inside `handleAppActivated` is for the
@@ -122,17 +139,23 @@ final class AppModel {
             self?.handleAppActivated(bundleId: bundleId)
         }
         appContextWatcher.start()
+    }
 
+    private func setupSleepWatcher() {
         // Wake-from-sleep recovery; rationale + flow live on `handleDidWake`.
         sleepWatcher.onDidWake = { [weak self] in
             self?.handleDidWake()
         }
         sleepWatcher.start()
+    }
 
+    private func setupConfigWatch() {
         configWatch = ConfigStore.watch { [weak self] result in
             self?.handleConfigEvent(result)
         }
+    }
 
+    private func runAutoDiscoveryIfNeeded() {
         // First-time auto-discovery: if `devices` is empty AND we've never
         // run the scanner before, run it now and seed config with whatever
         // we find. The flag prevents resurrecting devices a user later
@@ -152,10 +175,6 @@ final class AppModel {
             if autoDiscoverDevices() {
                 UserDefaults.standard.set(true, forKey: Self.autoDiscoveryRanKey)
             }
-        }
-
-        if yieldedTo == nil {
-            buildAndStartLinks()
         }
     }
 
