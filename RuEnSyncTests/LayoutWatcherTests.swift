@@ -1,0 +1,16 @@
+import Foundation
+@testable import RuEnSync
+import Testing
+
+@MainActor
+struct LayoutWatcherTests {
+    @Test("selectInputSource with non-existent layout returns notEnabled or listFailed")
+    func selectInputSourceNotEnabled() {
+        let watcher = LayoutWatcher(layouts: ["ABC", "Russian"])
+        let result = watcher.selectInputSource(layoutName: "NonExistentLayout")
+
+        // On a real macOS machine where the requested layout doesn't exist, this returns .notEnabled.
+        // On a test environment or if TISCreateInputSourceList fails entirely, it may return .listFailed.
+        #expect(result == .failure(.notEnabled) || result == .failure(.listFailed))
+    }
+}
