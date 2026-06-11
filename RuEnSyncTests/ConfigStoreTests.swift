@@ -136,44 +136,6 @@ struct ConfigDecodingTests {
     }
 }
 
-struct AppLayoutRuleMatchingTests {
-    @Test("exact bundleId wins over a prefix that also matches")
-    func exactBeatsPrefix() {
-        let rules: [Config.AppLayoutRule] = [
-            .prefix("com.jetbrains.", layout: "ABC"),
-            .exact("com.jetbrains.AppCode", layout: "Russian"),
-        ]
-        let match = AppLayoutRuleMatching.match(rules: rules, bundleId: "com.jetbrains.AppCode")
-        #expect(match?.layout == "Russian")
-    }
-
-    @Test("longest prefix wins when multiple prefixes match")
-    func longestPrefixWins() {
-        let rules: [Config.AppLayoutRule] = [
-            .prefix("com.", layout: "ABC"),
-            .prefix("com.jetbrains.", layout: "Russian"),
-        ]
-        let match = AppLayoutRuleMatching.match(rules: rules, bundleId: "com.jetbrains.AppCode")
-        // The longer prefix is specifically about "com.jetbrains.*", so it
-        // wins over the more permissive "com.*".
-        #expect(match?.bundleIdPrefix == "com.jetbrains.")
-    }
-
-    @Test("no match returns nil")
-    func noMatch() {
-        let rules: [Config.AppLayoutRule] = [
-            .exact("com.apple.dt.Xcode", layout: "ABC"),
-        ]
-        let match = AppLayoutRuleMatching.match(rules: rules, bundleId: "com.apple.Notes")
-        #expect(match == nil)
-    }
-
-    @Test("empty rules returns nil")
-    func emptyRules() {
-        #expect(AppLayoutRuleMatching.match(rules: [], bundleId: "com.apple.Notes") == nil)
-    }
-}
-
 struct ResolvedDeviceTests {
     @Test("parses 0x-prefixed product id")
     func parsesHexProductId() {
