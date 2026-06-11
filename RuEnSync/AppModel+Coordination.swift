@@ -257,4 +257,74 @@ extension AppModel {
             return false
         }
     }
+
+    // MARK: HID link state transitions
+
+    func handleLinkStateChange(idx: Int, state: HIDLink.State) {
+        guard idx < deviceStatuses.count, idx < hidLinks.count else {
+            let statusesCount = deviceStatuses.count
+            let linksCount = hidLinks.count
+            Log.app
+                .fault(
+                    "handleLinkStateChange out-of-bounds: idx=\(idx) statuses=\(statusesCount) links=\(linksCount)"
+                )
+            return
+        }
+        let previousState = deviceStatuses[idx].state
+        deviceStatuses[idx].state = state
+
+        let name = deviceStatuses[idx].name
+        switch (previousState, state) {
+        case (.offline, .connected):
+            activity.record(.deviceConnected(name: name))
+            cancelReconnectTask()
+            reconnectAttempt = 0
+        case let (.connected, .offline(reason)):
+            activity.record(.deviceDisconnected(name: name, reason: reason.menuLabel))
+            if reason.isRecoverable {
+                scheduleReconnectTask()
+            }
+        case let (.offline(prev), .offline(now)) where prev != now:
+            activity.record(.deviceOfflineReasonChanged(name: name, reason: now.menuLabel))
+            if now.isRecoverable, reconnectTask == nil {
+                scheduleReconnectTask()
+            }
+        default:
+            break
+        }
+
+        // On per-device connect, push two packets in order:
+        //   1. _OS_TYPE (MAC) — so firmware that knows 0xB0 flips into its
+        //      macOS-Russian variant before the first layout arrives.
+        //   2. _LAYOUT — last known layout, so the firmware doesn't sit on
+        //      a stale pre-disconnect state.
+        // Firmware that doesn't know 0xB0 ignores it; layout still works.
+        if case .connected = state {
+            let osOK = hidLinks[idx].sendOSFlag()
+            if !osOK {
+                // sendReport already logged the IOReturn at .error. .fault
+                // here so it surfaces in Console for users who didn't filter
+                // to .info/.debug; the headline feature of this app
+                // (auto-flip MAC mode after reflash) silently degrades into
+                // "you must press the on-keyboard toggle".
+                Log.hid
+                    .fault(
+                        "OS handshake failed for \(name, privacy: .public) — firmware will run in default (non-MAC) mode until reconnect"
+                    )
+                activity.record(.osHandshakeFailed(name: name))
+                return
+            }
+            activity.record(.osHandshakeSent(name: name))
+            // Force a fresh TIS read so the firmware seed reflects the actual
+            // current macOS layout, not a possibly-stale `lastIndex` left over
+            // from a missed notification (Punto Switcher burst, distributed-
+            // notification coalescing, etc.). Without this, manual Reconnect
+            // would silently re-send the stale value and the desync would
+            // outlive the recovery.
+            layoutWatcher.refreshCurrentIndex()
+            if let last = layoutWatcher.lastIndex {
+                hidLinks[idx].send(layoutIndex: last)
+            }
+        }
+    }
 }
