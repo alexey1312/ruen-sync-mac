@@ -205,16 +205,24 @@ final class HIDLink {
         )
 
         if result == kIOReturnSuccess {
-            let pid = String(format: "0x%04X", device.productId)
-            Log.hid.info("sent \(label, privacy: .public) to pid=\(pid, privacy: .public)")
-            // Inspection log: gated on a per-link flag rather than a per-send
-            // config lookup so the hot path stays cheap. AppModel flips the
-            // flag on every config reload to keep it in sync.
-            if inspectionEnabled, let packetLog {
-                packetLog.record(deviceName: device.name, productId: device.productId, bytes: buffer)
-            }
-            return true
+            return handleSendSuccess(buffer: buffer, label: label)
         }
+        return handleSendFailure(result: result, label: label, opened: opened)
+    }
+
+    private func handleSendSuccess(buffer: [UInt8], label: String) -> Bool {
+        let pid = String(format: "0x%04X", device.productId)
+        Log.hid.info("sent \(label, privacy: .public) to pid=\(pid, privacy: .public)")
+        // Inspection log: gated on a per-link flag rather than a per-send
+        // config lookup so the hot path stays cheap. AppModel flips the
+        // flag on every config reload to keep it in sync.
+        if inspectionEnabled, let packetLog {
+            packetLog.record(deviceName: device.name, productId: device.productId, bytes: buffer)
+        }
+        return true
+    }
+
+    private func handleSendFailure(result: IOReturn, label: String, opened: IOHIDDevice) -> Bool {
         let code = String(format: "0x%08X", result)
         let pid = String(format: "0x%04X", device.productId)
         Log.hid
