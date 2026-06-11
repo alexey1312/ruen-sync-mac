@@ -20,6 +20,9 @@ final class LayoutWatcher {
 
     var onLayoutChanged: ((UInt8) -> Void)?
 
+    /// Dependency injection for tests to mock TISCreateInputSourceList failure.
+    var _createInputSourceListOverride: ((CFDictionary, Bool) -> Unmanaged<CFArray>?)?
+
     init(layouts: [String]) {
         self.layouts = layouts
     }
@@ -154,8 +157,13 @@ final class LayoutWatcher {
         let filter: [CFString: Any] = [
             kTISPropertyInputSourceCategory: kTISCategoryKeyboardInputSource as Any,
         ]
+        let unmanaged: Unmanaged<CFArray>? = if let override = _createInputSourceListOverride {
+            override(filter as CFDictionary, false)
+        } else {
+            TISCreateInputSourceList(filter as CFDictionary, false)
+        }
         guard
-            let unmanaged = TISCreateInputSourceList(filter as CFDictionary, false),
+            let unmanaged,
             let sources = unmanaged.takeRetainedValue() as? [TISInputSource]
         else {
             Log.layout.error("TISCreateInputSourceList returned nil")
