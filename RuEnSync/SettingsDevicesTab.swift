@@ -140,7 +140,7 @@ private struct DeviceRow: View {
         guard let pid = ResolvedDevice.parseHex(device.productId) else {
             return .invalidProductId
         }
-        if let state = model.deviceStatuses.first(where: { $0.productId == pid })?.state {
+        if let state = model.deviceStatusesDict[pid] {
             return .known(state)
         }
         return .pending
