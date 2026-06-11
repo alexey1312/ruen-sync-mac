@@ -9,8 +9,13 @@ struct LayoutWatcherTests {
         let watcher = LayoutWatcher(layouts: ["ABC", "Russian"])
         watcher.inputSourceListProvider = { _, _ in nil }
 
-        let result = watcher.selectInputSource(layoutName: "Russian")
-        #expect(result == .failure(.listFailed))
+        // Result<Void, _> isn't Equatable (Void isn't), so match the failure
+        // and compare the Equatable error rather than the whole Result.
+        guard case let .failure(error) = watcher.selectInputSource(layoutName: "Russian") else {
+            Issue.record("expected .failure(.listFailed)")
+            return
+        }
+        #expect(error == .listFailed)
     }
 
     @Test("selectInputSource returns .notEnabled when TISCreateInputSourceList returns an empty list")
@@ -19,7 +24,10 @@ struct LayoutWatcherTests {
         let emptyArray = [] as CFArray
         watcher.inputSourceListProvider = { _, _ in Unmanaged.passRetained(emptyArray) }
 
-        let result = watcher.selectInputSource(layoutName: "Russian")
-        #expect(result == .failure(.notEnabled))
+        guard case let .failure(error) = watcher.selectInputSource(layoutName: "Russian") else {
+            Issue.record("expected .failure(.notEnabled)")
+            return
+        }
+        #expect(error == .notEnabled)
     }
 }
