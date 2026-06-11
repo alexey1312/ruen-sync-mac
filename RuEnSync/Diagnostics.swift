@@ -80,7 +80,7 @@ enum Diagnostics {
         let workDir = makeWorkDirectory()
 
         do {
-            try writeReadme(to: workDir.appendingPathComponent("README.txt"))
+            try await writeReadme(to: workDir.appendingPathComponent("README.txt"))
         } catch {
             errors.append(error)
             missing.append("README.txt")
@@ -98,7 +98,7 @@ enum Diagnostics {
         // config.json + activity.db copies. Distinguish "source missing"
         // (legitimate first-run case) from "copy failed" (the user will
         // want to know — that's the file the bug report needed).
-        switch copyIfExists(from: ConfigStore.configURL, to: workDir.appendingPathComponent("config.json")) {
+        switch await copyIfExists(from: ConfigStore.configURL, to: workDir.appendingPathComponent("config.json")) {
         case .copied: break
         case .sourceMissing: break // no config yet: not a bug, not flagged.
         case let .failed(error):
@@ -107,7 +107,7 @@ enum Diagnostics {
         }
 
         let dbSrc = ConfigStore.configURL.deletingLastPathComponent().appendingPathComponent("activity.db")
-        switch copyIfExists(from: dbSrc, to: workDir.appendingPathComponent("activity.db")) {
+        switch await copyIfExists(from: dbSrc, to: workDir.appendingPathComponent("activity.db")) {
         case .copied: break
         case .sourceMissing: break
         case let .failed(error):
@@ -124,7 +124,7 @@ enum Diagnostics {
         }
 
         do {
-            try writePacketSnapshot(packetSnapshot, to: workDir.appendingPathComponent("packets.txt"))
+            try await writePacketSnapshot(packetSnapshot, to: workDir.appendingPathComponent("packets.txt"))
         } catch {
             errors.append(error)
             // packets.txt is only meaningful when the inspector is on; the
@@ -186,7 +186,7 @@ enum Diagnostics {
         }
     }
 
-    private static func writeReadme(to url: URL) throws {
+    private static func writeReadme(to url: URL) async throws {
         let body = """
         RuEnSync diagnostics bundle
         ===========================
@@ -207,7 +207,16 @@ enum Diagnostics {
         will have flagged it — that means the export tried and failed (not
         that the export forgot it).
         """
-        try body.write(to: url, atomically: true, encoding: .utf8)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    try body.write(to: url, atomically: true, encoding: .utf8)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     private static func writeSystemInfo(to url: URL) async throws {
@@ -221,7 +230,17 @@ enum Diagnostics {
             "Hardware: \(model)",
             "Generated: \(Date())",
         ]
-        try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        let text = lines.joined(separator: "\n")
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    try text.write(to: url, atomically: true, encoding: .utf8)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     private static func writeRecentLog(to url: URL) async throws {
@@ -230,17 +249,36 @@ enum Diagnostics {
             "/usr/bin/log",
             arguments: ["show", "--predicate", predicate, "--info", "--last", "1h", "--style", "compact"]
         )
-        try output.write(to: url, atomically: true, encoding: .utf8)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    try output.write(to: url, atomically: true, encoding: .utf8)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
-    private static func writePacketSnapshot(_ entries: [HIDPacketEntry], to url: URL) throws {
+    private static func writePacketSnapshot(_ entries: [HIDPacketEntry], to url: URL) async throws {
         guard !entries.isEmpty else { return }
         let lines = entries.map { entry -> String in
             let hex = entry.bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
             let pid = String(format: "%04X", entry.productId)
             return "\(entry.timestamp)  \(entry.deviceName) (pid=0x\(pid))  \(entry.interpretation)\n  \(hex)"
         }
-        try lines.joined(separator: "\n\n").write(to: url, atomically: true, encoding: .utf8)
+        let text = lines.joined(separator: "\n\n")
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    try text.write(to: url, atomically: true, encoding: .utf8)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     private static func zip(workDir: URL, to zipURL: URL) async throws {
@@ -259,11 +297,20 @@ enum Diagnostics {
         case failed(Error)
     }
 
-    private static func copyIfExists(from source: URL, to dest: URL) -> CopyOutcome {
+    private static func copyIfExists(from source: URL, to dest: URL) async -> CopyOutcome {
         let fm = FileManager.default
         guard fm.fileExists(atPath: source.path) else { return .sourceMissing }
         do {
-            try fm.copyItem(at: source, to: dest)
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                DispatchQueue.global(qos: .utility).async {
+                    do {
+                        try fm.copyItem(at: source, to: dest)
+                        continuation.resume()
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
             return .copied
         } catch {
             Log.app
