@@ -20,6 +20,11 @@ final class LayoutWatcher {
 
     var onLayoutChanged: ((UInt8) -> Void)?
 
+    /// Test seam mirroring `TISCreateInputSourceList`'s signature. Tests inject
+    /// a closure to force the nil / empty-list failure paths deterministically;
+    /// production leaves it `nil`, so the real Carbon call is used.
+    var inputSourceListProvider: ((CFDictionary?, Bool) -> Unmanaged<CFArray>?)?
+
     init(layouts: [String]) {
         self.layouts = layouts
     }
@@ -154,8 +159,9 @@ final class LayoutWatcher {
         let filter: [CFString: Any] = [
             kTISPropertyInputSourceCategory: kTISCategoryKeyboardInputSource as Any,
         ]
+        let provider = inputSourceListProvider ?? TISCreateInputSourceList
         guard
-            let unmanaged = TISCreateInputSourceList(filter as CFDictionary, false),
+            let unmanaged = provider(filter as CFDictionary, false),
             let sources = unmanaged.takeRetainedValue() as? [TISInputSource]
         else {
             Log.layout.error("TISCreateInputSourceList returned nil")
