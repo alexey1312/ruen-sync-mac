@@ -392,8 +392,14 @@ Or open the generated workspace in Xcode and ⌘R.
 
 ## What NOT to touch without discussion
 
-- The HID packet layout in `HIDLink.send(layoutIndex:)`. Firmware depends on the
-  exact byte positions.
+- The HID packet **byte layout**, which lives in `HIDLink.buildReport(layoutIndex:)`
+  and `HIDLink.buildOSReport()` (the `0xAC` / `0xB0` constructors), plus the
+  `IOHIDDeviceSetReport(reportID = 0, …)` call in `HIDLink.sendReport`. Firmware
+  depends on the exact byte positions (see note 4). This protects the _bytes on the
+  wire_, not the whole send subsystem: `send`/`sendReport` are thin wrappers, so
+  refactoring their logging or offline-transition logic (e.g. PR #38) is fine as
+  long as the constructors, the constants, and the `IOHIDDeviceSetReport` call stay
+  byte-for-byte unchanged.
 - The `kIOHIDPrimaryUsagePageKey / kIOHIDPrimaryUsageKey` filter values. QMK Raw HID
   is hardcoded to `0xFF60 / 0x61`. Changing these means we won't find any keyboards.
 - `LSUIElement = true` in Info.plist. Removing it makes the Dock icon appear, which
