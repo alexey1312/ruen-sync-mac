@@ -62,7 +62,6 @@ extension Diagnostics {
 /// - `packets.txt`    — current ring-buffer contents (empty unless the
 ///                      inspector flag is on).
 enum Diagnostics {
-    // swiftlint:disable:next cyclomatic_complexity
     static func exportZip(packetLog: HIDPacketLog) async -> DiagnosticsResult {
         // Snapshot the @MainActor-isolated log up-front. Everything below
         // can run off-main without crossing back, because we hold an
@@ -74,10 +73,19 @@ enum Diagnostics {
         // sit in `activity.db-wal` and never make it into the zip.
         checkpointActivityDBIfPresent()
 
+        let workDir = makeWorkDirectory()
+
+        let (missing, errors) = await collectFiles(into: workDir, packetSnapshot: packetSnapshot)
+
+        return await archiveAndCleanup(workDir: workDir, missing: missing, errors: errors)
+    }
+
+    private static func collectFiles(
+        into workDir: URL,
+        packetSnapshot: [HIDPacketEntry]
+    ) async -> (missing: [String], errors: [Error]) {
         var missing: [String] = []
         var errors: [Error] = []
-
-        let workDir = makeWorkDirectory()
 
         do {
             try writeReadme(to: workDir.appendingPathComponent("README.txt"))
@@ -134,15 +142,20 @@ enum Diagnostics {
             Log.app.error("diagnostics: packets.txt failed: \(error.localizedDescription, privacy: .public)")
         }
 
+        return (missing, errors)
+    }
+
+    private static func archiveAndCleanup(workDir: URL, missing: [String], errors: [Error]) async -> DiagnosticsResult {
+        var mutableErrors = errors
         let zipURL = downloadsZipURL()
         do {
             try await zip(workDir: workDir, to: zipURL)
             try? FileManager.default.removeItem(at: workDir)
-            return DiagnosticsResult(zipURL: zipURL, missing: missing, errors: errors)
+            return DiagnosticsResult(zipURL: zipURL, missing: missing, errors: mutableErrors)
         } catch {
-            errors.append(error)
+            mutableErrors.append(error)
             Log.app.error("diagnostics: zip failed: \(error.localizedDescription, privacy: .public)")
-            return DiagnosticsResult(zipURL: nil, missing: missing, errors: errors)
+            return DiagnosticsResult(zipURL: nil, missing: missing, errors: mutableErrors)
         }
     }
 
