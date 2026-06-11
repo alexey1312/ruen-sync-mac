@@ -11,6 +11,11 @@ struct LayoutWatcherTests {
 
         // On a real macOS machine where the requested layout doesn't exist, this returns .notEnabled.
         // On a test environment or if TISCreateInputSourceList fails entirely, it may return .listFailed.
-        #expect(result == .failure(.notEnabled) || result == .failure(.listFailed))
+        switch result {
+        case .failure(.notEnabled), .failure(.listFailed):
+            #expect(true) // Success
+        default:
+            Issue.record("Expected .notEnabled or .listFailed, got \(result)")
+        }
     }
 }
