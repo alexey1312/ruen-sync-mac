@@ -227,7 +227,7 @@ enum Diagnostics {
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
-        let model = await (try? runShell("/usr/sbin/sysctl", arguments: ["-n", "hw.model"])) ?? "?"
+        let model = await (try? runShell(.sysctl, arguments: ["-n", "hw.model"])) ?? "?"
         let lines = [
             "RuEnSync \(appVersion) (\(appBuild))",
             "macOS \(osVersion)",
@@ -240,7 +240,7 @@ enum Diagnostics {
     private static func writeRecentLog(to url: URL) async throws {
         let predicate = "subsystem == \"\(Log.subsystem)\""
         let output = try await runShell(
-            "/usr/bin/log",
+            .log,
             arguments: ["show", "--predicate", predicate, "--info", "--last", "1h", "--style", "compact"]
         )
         try output.write(to: url, atomically: true, encoding: .utf8)
@@ -259,9 +259,16 @@ enum Diagnostics {
     private static func zip(workDir: URL, to zipURL: URL) async throws {
         // -r recursive, -j junk paths (don't store the tmp dir prefix), -q quiet.
         _ = try await runShell(
-            "/usr/bin/zip",
+            .zip,
             arguments: ["-r", "-j", "-q", zipURL.path, workDir.path]
         )
+    }
+
+    /// Allowed executables for shell commands to prevent command execution vulnerabilities.
+    private enum AllowedExecutable: String {
+        case sysctl = "/usr/sbin/sysctl"
+        case log = "/usr/bin/log"
+        case zip = "/usr/bin/zip"
     }
 
     /// Result of a defensive copy. Splits the previous "silently swallow
@@ -299,9 +306,9 @@ enum Diagnostics {
     /// any non-trivial activity, so the previous synchronous variant
     /// was a latent freeze.
     @discardableResult
-    private static func runShell(_ executable: String, arguments: [String]) async throws -> String {
+    private static func runShell(_ executable: AllowedExecutable, arguments: [String]) async throws -> String {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
+        process.executableURL = URL(fileURLWithPath: executable.rawValue)
         process.arguments = arguments
         let stdout = Pipe()
         let stderr = Pipe()
@@ -336,7 +343,7 @@ enum Diagnostics {
         if process.terminationStatus != 0 {
             let errStr = String(data: errData, encoding: .utf8) ?? ""
             throw NSError(domain: "Diagnostics", code: Int(process.terminationStatus), userInfo: [
-                NSLocalizedDescriptionKey: "\(executable) exited \(process.terminationStatus): \(errStr)",
+                NSLocalizedDescriptionKey: "\(executable.rawValue) exited \(process.terminationStatus): \(errStr)",
             ])
         }
         return outStr
