@@ -122,13 +122,21 @@ final class HIDLink {
         if hasStarted { return }
         hasStarted = true
 
+        configureDeviceMatching()
+        registerCallbacks()
+        openManager()
+    }
+
+    private func configureDeviceMatching() {
         let matching: [String: Any] = [
             kIOHIDPrimaryUsagePageKey: NSNumber(value: device.usagePage),
             kIOHIDPrimaryUsageKey: NSNumber(value: device.usage),
             kIOHIDProductIDKey: NSNumber(value: device.productId),
         ]
         IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
+    }
 
+    private func registerCallbacks() {
         // Pass `self` as a retained context. AppModel.reconnectAll() drops the
         // strong reference to this HIDLink before tearing down the manager, so
         // an unretained pointer could read freed memory if IOKit dispatches a
@@ -151,7 +159,9 @@ final class HIDLink {
         }, context)
 
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+    }
 
+    private func openManager() {
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         if result != kIOReturnSuccess {
             let code = String(format: "0x%08X", result)
