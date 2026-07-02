@@ -215,6 +215,20 @@ plain value-typed initialisers. If you ever wrap them in a
     state machine that defers the local update until `lang_sync_to`
     confirms via `0xAC`.
 
+17. **`LayoutWatcher` is event-driven PLUS a 1 s reconciliation poll — don't
+    "simplify" it back to event-only.** DNC delivery of
+    `kTISNotifySelectedKeyboardInputSourceChanged` is best-effort (bursts /
+    App Nap can drop it), and the in-process TIS cache can lag the
+    notification, so the handler's immediate read returns the OLD source ID
+    and the `readAndDispatch` dedup swallows the change. Either miss used to
+    leave the menubar pill AND firmware stale until the next layout change —
+    the "random" desync where the pill disagrees with actual macOS layout
+    (host-side twin of note 16's firmware-side desync). The poll bounds the
+    stale window to `pollInterval` (1 s) and is safe because
+    `readAndDispatch` is deduped. A poll-caught change logs at `.notice`
+    with "(reconciliation poll)" — `.notice` persists in the unified log, so
+    grep for it post-mortem to prove a notification was missed.
+
 ## Firmware contract
 
 The keyboard side is in [split_keyboard_layouts/firmware/](https://github.com/alexey1312/split_keyboard_layouts/tree/main/firmware).
