@@ -6,9 +6,13 @@ import Foundation
 /// Watches macOS keyboard layout changes via the Carbon TIS API and forwards
 /// the resolved `idx` (per `config.layouts`) to a callback.
 ///
-/// Event-driven: uses `DistributedNotificationCenter` subscription to
-/// `kTISNotifySelectedKeyboardInputSourceChanged`. Replaces the 100 ms polling
-/// loop that qmk-hid-host uses on macOS.
+/// Event-driven with a reconciliation poll: the fast path is a
+/// `DistributedNotificationCenter` subscription to
+/// `kTISNotifySelectedKeyboardInputSourceChanged` (vs the 100 ms polling loop
+/// qmk-hid-host uses on macOS); a slow `pollInterval` poll backstops it,
+/// because DNC delivery is best-effort and the TIS cache can lag the
+/// notification — either miss used to leave host + firmware stale until the
+/// next layout change.
 @MainActor
 final class LayoutWatcher {
     private let layouts: [String]
@@ -24,6 +28,15 @@ final class LayoutWatcher {
     /// a closure to force the nil / empty-list failure paths deterministically;
     /// production leaves it `nil`, so the real Carbon call is used.
     var inputSourceListProvider: ((CFDictionary?, Bool) -> Unmanaged<CFArray>?)?
+
+    /// Test seam mirroring the TIS current-source read. Tests inject a closure
+    /// to drive `readAndDispatch` / the reconciliation poll deterministically;
+    /// production leaves it `nil`, so the real Carbon call is used.
+    var currentSourceIDProvider: (() -> String?)?
+
+    /// Reconciliation-poll cadence. Overridable in tests to keep them fast.
+    var pollInterval: Duration = .seconds(1)
+    private var pollTask: Task<Void, Never>?
 
     init(layouts: [String]) {
         self.layouts = layouts
@@ -49,6 +62,22 @@ final class LayoutWatcher {
         // Read the current layout on start so we report state even when no
         // notification has fired yet (e.g. boot, app first launch).
         readAndDispatch()
+
+        // Reconciliation poll on top of the event path. DNC delivery is
+        // best-effort (bursts / App Nap can drop it) and the in-process TIS
+        // cache can lag the notification, so an event-only watcher can go
+        // stale silently — pill and firmware then stay on the old layout
+        // until the NEXT change. The poll bounds that window to ~pollInterval.
+        // readAndDispatch() is deduped, so idle ticks never reach the HID
+        // endpoint or the callback.
+        let interval = pollInterval
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard let self else { return }
+                readAndDispatch(trigger: .poll)
+            }
+        }
     }
 
     /// Reads the current TIS input source and updates `lastIndex` on success.
@@ -66,18 +95,32 @@ final class LayoutWatcher {
         return result.idx
     }
 
+    /// What caused a `readAndDispatch` call — only affects logging, so a
+    /// poll-caught change (i.e. a missed/raced notification) leaves a
+    /// persisted trace for post-mortems.
+    enum ReadTrigger {
+        case notification
+        case poll
+    }
+
     /// Reads the current input source and dispatches the resolved index when
     /// it differs from the previously cached one. Same-state notifications
     /// (Punto Switcher and similar tools fire bursts of TIS notifications
     /// even for no-op switches; see firmware-side analysis) are deduped here
     /// to avoid hammering the QMK Raw HID endpoint, which is single-buffered
     /// and can drop packets under rapid bursts.
-    func readAndDispatch() {
+    func readAndDispatch(trigger: ReadTrigger = .notification) {
         let previousIndex = lastIndex
         guard let result = readCurrent() else { return }
         lastIndex = result.idx
         if previousIndex == result.idx { return }
-        Log.layout.info("layout '\(result.id, privacy: .public)' → idx=\(result.idx)")
+        if trigger == .poll {
+            // .notice persists in the unified log (unlike .info) — this is
+            // the evidence that a DNC notification was dropped or raced.
+            Log.layout.notice("layout '\(result.id, privacy: .public)' → idx=\(result.idx) (reconciliation poll)")
+        } else {
+            Log.layout.info("layout '\(result.id, privacy: .public)' → idx=\(result.idx)")
+        }
         onLayoutChanged?(result.idx)
     }
 
@@ -86,6 +129,25 @@ final class LayoutWatcher {
     /// mutate `lastIndex` — that's the caller's job, so `refreshCurrentIndex`
     /// and `readAndDispatch` can each apply their own write/dispatch policy.
     private func readCurrent() -> (idx: UInt8, id: String)? {
+        let sourceID: String? = if let currentSourceIDProvider {
+            currentSourceIDProvider()
+        } else {
+            readSystemSourceID()
+        }
+        guard let id = sourceID else { return nil }
+
+        guard let idx = LayoutResolver.resolveIndex(inputSourceID: id, layouts: layouts) else {
+            let layoutList = layouts
+            Log.layout
+                .warning("input source '\(id, privacy: .public)' not in \(layoutList, privacy: .public) — ignored")
+            return nil
+        }
+
+        return (idx, id)
+    }
+
+    /// The real Carbon read: current keyboard-layout input source ID.
+    private func readSystemSourceID() -> String? {
         guard
             let unmanaged = TISCopyCurrentKeyboardLayoutInputSource(),
             let inputSource = unmanaged.takeRetainedValue() as TISInputSource?
@@ -100,22 +162,16 @@ final class LayoutWatcher {
             Log.layout.error("kTISPropertyInputSourceID returned nil")
             return nil
         }
-        let id = Unmanaged<CFString>.fromOpaque(rawID).takeUnretainedValue() as String
-
-        guard let idx = LayoutResolver.resolveIndex(inputSourceID: id, layouts: layouts) else {
-            let layoutList = layouts
-            Log.layout
-                .warning("input source '\(id, privacy: .public)' not in \(layoutList, privacy: .public) — ignored")
-            return nil
-        }
-
-        return (idx, id)
+        return Unmanaged<CFString>.fromOpaque(rawID).takeUnretainedValue() as String
     }
 
-    /// Cancels the distributed-notification subscription. Same rationale as
-    /// `HIDLink.stop()` — Swift 6 forbids touching non-Sendable fields from
-    /// the (always-nonisolated) `deinit`.
+    /// Cancels the distributed-notification subscription and the
+    /// reconciliation poll. Same rationale as `HIDLink.stop()` — Swift 6
+    /// forbids touching non-Sendable fields from the (always-nonisolated)
+    /// `deinit`.
     func stop() {
+        pollTask?.cancel()
+        pollTask = nil
         if let observer {
             DistributedNotificationCenter.default().removeObserver(observer)
             self.observer = nil
